@@ -31,7 +31,7 @@ tools/webauthn-demo/  独立 WebAuthn 演示服务器
 
 `enclosure/` 里是主板 MAIN 和副板 KEY 的 3D 打印外壳，外形按面包板
 **54.1 × 81.6 mm**，总高 26 mm；USB-C 12×6 mm 开口，DC 头 Ø8 mm + 5.6 mm
-钥匙槽，M3 螺丝盖，内部有 25.6 mm 板轨。
+钥匙槽，**4 个卡扣 + 前缘撬槽**（免螺丝），内部有 25.6 mm 板轨。
 
 ![外壳预览](enclosure/preview.png)
 
