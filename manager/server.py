@@ -256,6 +256,18 @@ def api_reset(body, m):
         return {"ok": True, "info": d.info()}
 
 
+@route("POST", r"/api/device/interlock/replace")
+def api_replace_key(body, m):
+    cancel = bool(body.get("cancel"))
+    with DEVICE_LOCK:
+        d = device()
+        try:
+            d.replace_keyboard(cancel=cancel)
+        except pkdev.PasskeyError as e:
+            raise ApiError(str(e), 409)
+        return {"ok": True, "info": d.info()}
+
+
 @route("POST", r"/api/device/reboot")
 def api_reboot(body, m):
     with DEVICE_LOCK:

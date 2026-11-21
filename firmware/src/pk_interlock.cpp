@@ -38,9 +38,15 @@ HardwareSerial g_serial(1);
 Preferences g_prefs;
 
 uint8_t g_key[32];
+uint8_t g_pendingKey[32];
 volatile bool g_haveKey = false;
 volatile bool g_ready = false;
 volatile bool g_paired = false;
+volatile bool g_replaceMode = false;
+volatile bool g_replaceRequest = false;
+volatile bool g_hasPending = false;
+uint32_t g_replaceDeadline = 0;
+uint32_t g_lastPendingPair = 0;
 bool g_pairedLoaded = false;
 volatile uint8_t g_state = 0;  // 0 pairing, 1 waiting, 2 ok, 3 mismatch
 
@@ -114,18 +120,31 @@ void loadOrCreateKey() {
     Serial.println("[interlock] generated new link key, pairing...");
 }
 
-void proof(const uint8_t nonce[16], uint8_t out[32]) {
+void proofWithKey(const uint8_t key[32], const uint8_t nonce[16], uint8_t out[32]) {
     uint8_t msg[16 + 8];
     memcpy(msg, nonce, 16);
     memcpy(msg + 16, "TECHX-IL", 8);
-    hmac_sha256(g_key, sizeof(g_key), msg, sizeof(msg), out);
+    hmac_sha256(key, 32, msg, sizeof(msg), out);
+}
+
+void proof(const uint8_t nonce[16], uint8_t out[32]) {
+    proofWithKey(g_key, nonce, out);
+}
+
+void sendKey(const uint8_t key[32]) {
+    char hex[65];
+    toHex(key, 32, hex);
+    g_serial.printf("K %s\n", hex);
 }
 
 void sendPair() {
-    char hex[65];
-    toHex(g_key, sizeof(g_key), hex);
-    g_serial.printf("K %s\n", hex);
+    sendKey(g_key);
     g_lastPair = millis();
+}
+
+void sendPending() {
+    sendKey(g_pendingKey);
+    g_lastPendingPair = millis();
 }
 
 void sendChallenge() {
@@ -137,18 +156,46 @@ void sendChallenge() {
     g_awaiting = true;
 }
 
+void promotePending() {
+    memcpy(g_key, g_pendingKey, sizeof(g_key));
+    saveKey();
+    g_hasPending = false;
+    g_replaceMode = false;
+    g_paired = true;
+    g_pairedLoaded = true;
+    g_prefs.putBool("paired", true);
+    g_ready = true;
+    g_lastProof = millis();
+    g_state = 2;
+    led::locked(false);
+    Serial.println("[interlock] replacement complete; new board active");
+}
+
 void handleLine(char* line) {
     if (strncmp(line, "P ", 2) == 0) {
-        uint8_t got[32], want[32];
+        uint8_t got[32], active[32];
         if (!parseHex(line + 2, got, sizeof(got))) return;
-        proof(g_nonce, want);
-        if (ct_equal(got, want, sizeof(want))) {
+        proof(g_nonce, active);
+
+        if (g_replaceMode && g_hasPending) {
+            uint8_t pending[32];
+            proofWithKey(g_pendingKey, g_nonce, pending);
+            if (ct_equal(got, pending, sizeof(pending))) {
+                promotePending();
+                return;
+            }
+            if (ct_equal(got, active, sizeof(active))) {
+                // The old board is still connected; it stays verified for
+                // the mode but must not unlock while we wait for the new one.
+                return;
+            }
+        } else if (ct_equal(got, active, sizeof(active))) {
             g_lastProof = millis();
             g_awaiting = false;
             if (!g_paired) {
                 // First successful pairing: from now on the key is never
-                // offered again.  A replacement second board requires a
-                // factory reset of this board.
+                // offered again.  A replacement requires the explicit
+                // "replace key board" flow.
                 g_paired = true;
                 g_pairedLoaded = true;
                 g_prefs.putBool("paired", true);
@@ -160,7 +207,11 @@ void handleLine(char* line) {
                 led::locked(false);
                 Serial.println("[interlock] second board OK");
             }
-        } else {
+            return;
+        }
+
+        // Unknown/mismatched key.
+        if (!g_replaceMode) {
             g_ready = false;
             g_state = 3;
             g_awaiting = false;
@@ -215,11 +266,29 @@ void task(void*) {
 
         uint32_t now = millis();
 
+        if (g_replaceRequest) {
+            g_replaceRequest = false;
+            if (!random_bytes(g_pendingKey, sizeof(g_pendingKey))) {
+                Serial.println("[interlock] RNG failed for replacement key");
+            } else {
+                g_hasPending = true;
+                g_replaceMode = true;
+                g_replaceDeadline = now + 120000;
+                g_lastPendingPair = 0;
+                g_lastChallenge = 0;
+                g_ready = false;
+                g_lastProof = 0;
+                g_state = 1;
+                led::locked(true);
+                Serial.println("[interlock] replace mode: old board verified, waiting for new board");
+            }
+        }
+
         // Support both common wirings:
         //   crossed: main 16 -> peer 42, main 17 <- peer 41  (RX=17, TX=16)
         //   straight: main 16 -> peer 41, main 17 -> peer 42 (RX=16, TX=17)
         // Try one mapping, and if no proof arrives, flip the pins.
-        if (!g_ready && (uint32_t)(now - g_lastSwap) > 6000) {
+        if (!g_ready && !g_replaceMode && (uint32_t)(now - g_lastSwap) > 6000) {
             g_swapped = !g_swapped;
             g_serial.end();
             g_serial.begin(PK_IL_BAUD, SERIAL_8N1,
@@ -241,8 +310,20 @@ void task(void*) {
         }
 
         // Pairing is one-shot: only an unpaired main board hands out the key.
-        if (g_haveKey && !g_paired && (uint32_t)(now - g_lastPair) > 3000) {
+        // In replace mode the pending key is offered instead; the old key is
+        // only swapped in after the new board proves it.
+        if (g_replaceMode && g_hasPending && (uint32_t)(now - g_lastPendingPair) > 3000) {
+            sendPending();
+        } else if (g_haveKey && !g_paired && (uint32_t)(now - g_lastPair) > 3000) {
             sendPair();
+        }
+
+        if (g_replaceMode && (int32_t)(now - g_replaceDeadline) >= 0) {
+            g_replaceMode = false;
+            g_hasPending = false;
+            g_ready = false;
+            g_lastProof = 0;
+            Serial.println("[interlock] replace timeout; old key kept");
         }
 
         if (g_awaiting && (uint32_t)(now - g_lastChallenge) > PK_IL_PROOF_TIMEOUT_MS) {
@@ -281,10 +362,32 @@ void poll() {}
 
 bool ready() { return g_ready; }
 
+bool beginReplace() {
+    if (g_replaceMode || g_replaceRequest) return false;
+    if (!g_ready) return false;
+    g_replaceRequest = true;
+    return true;
+}
+
+void cancelReplace() {
+    if (!g_replaceMode && !g_replaceRequest) return;
+    g_replaceRequest = false;
+    g_replaceMode = false;
+    g_hasPending = false;
+    g_ready = false;
+    g_lastProof = 0;
+    Serial.println("[interlock] replace cancelled");
+}
+
+bool replaceMode() { return g_replaceMode || g_replaceRequest; }
+
 void forget() {
     g_ready = false;
     g_haveKey = false;
     g_paired = false;
+    g_replaceMode = false;
+    g_replaceRequest = false;
+    g_hasPending = false;
     g_pairedLoaded = true;
     g_state = 0;
     g_keyAnnounced = false;
@@ -299,6 +402,7 @@ void forget() {
 bool paired() { return g_paired; }
 
 const char* state() {
+    if (g_replaceMode) return "replace";
     if (g_ready) return "ok";
     if (!g_paired) return "pairing";
     if (g_state == 3) return "mismatch";
@@ -321,6 +425,9 @@ void begin() {}
 void poll() {}
 bool ready() { return true; }
 bool paired() { return true; }
+bool beginReplace() { return false; }
+void cancelReplace() {}
+bool replaceMode() { return false; }
 void forget() {}
 const char* state() { return "disabled"; }
 uint32_t lastProofAgeMs() { return 0; }

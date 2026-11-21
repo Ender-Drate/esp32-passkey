@@ -183,10 +183,11 @@
     <div class="setting">
       <div class="setting-text">
         <h3>第二块板</h3>
-        <p>物理钥匙：只有 GPIO16/17 ↔ 41/42 链路正常时，注册和登录才会被授权；断开时主板亮红灯。配对是一次性的，换副板必须先清空主板。</p>
+        <p>物理钥匙：只有 GPIO16/17 ↔ 41/42 链路正常时，注册和登录才会被授权；断开时主板亮红灯。换副板请点右侧「更换副板」：先验证旧副板，再插新副板，不会清空 Passkey。</p>
       </div>
       <div class="setting-control">
         <span class="pill" id="il-pill">—</span>
+        <button class="btn ghost small" id="btn-replace-key">更换副板</button>
       </div>
     </div>
 

@@ -112,13 +112,14 @@
     const d = state.device;
     const ilOk = d ? d.il !== false : false;
     const ilPaired = d ? d.ilPaired !== false : true;
+    const replacing = d ? d.ilReplace === true : false;
     $("#device-dot").className = "dot " + (d ? (ilOk ? "is-live" : "is-lock") : "is-off");
     $("#device-name").textContent = d ? "已连接" : "未连接";
     $("#device-port").textContent = d ? d.port : "";
     $("#device-name").title = d ? `${d.port} · ${d.pin ? "PIN 已设置" : "未设 PIN"}` : "";
     const badge = $("#hero-badge");
     if (d) {
-      const note = ilOk ? "" : ilPaired ? " · 副板未连接" : " · 副板未配对";
+      const note = replacing ? " · 等待新副板" : ilOk ? "" : ilPaired ? " · 副板未连接" : " · 副板未配对";
       badge.innerHTML = `<span class="dot ${ilOk ? "is-live" : "is-lock"}"></span><span>已连接 · ${esc(d.port)}${note}</span>`;
     } else {
       badge.innerHTML = `<span class="dot"></span><span>设备未连接</span>`;
@@ -434,12 +435,20 @@
       if (!d) {
         ilPill.className = "pill";
         ilPill.textContent = "—";
+      } else if (d.ilReplace === true) {
+        ilPill.className = "pill warn";
+        ilPill.textContent = "等待新副板";
       } else if (d.il === false) {
         ilPill.className = "pill bad";
         ilPill.textContent = d.ilPaired === false ? "未配对" : "未连接";
       } else {
         ilPill.className = "pill ok";
         ilPill.textContent = "已连接";
+      }
+      const replaceBtn = $("#btn-replace-key");
+      if (replaceBtn) {
+        replaceBtn.textContent = d && d.ilReplace === true ? "取消更换" : "更换副板";
+        replaceBtn.disabled = !d;
       }
     }
     const pill = $("#pin-pill");
@@ -448,6 +457,40 @@
     pill.textContent = d.pin ? `已设置 · 剩余 ${d.retries} 次` : "未设置";
     $$("#upmode-seg button").forEach((b) => b.classList.toggle("is-active", (b.dataset.mode === "auto") === (d.upMode === 1)));
   }
+
+  let replaceWatch = null;
+  function watchReplace() {
+    if (replaceWatch) clearInterval(replaceWatch);
+    replaceWatch = setInterval(async () => {
+      await refresh();
+      if (!state.device || state.device.ilReplace !== true) {
+        clearInterval(replaceWatch);
+        replaceWatch = null;
+        if (state.device && state.device.il === true) {
+          toast("新副板已配对，Passkey 未受影响", "ok");
+        }
+      }
+    }, 2000);
+  }
+
+  $("#btn-replace-key")?.addEventListener("click", async () => {
+    const d = state.device;
+    if (!d) return toast("请先连接设备", "err");
+    const replacing = d.ilReplace === true;
+    if (!replacing) {
+      if (d.il !== true) return toast("请先接好并验证旧副板", "err");
+      if (!confirm("更换副板不会删除 Passkey。\n\n请保持旧副板连接。点击确定后，主板会先验证旧副板；验证通过后，再拔掉旧副板、插上空白的新副板。\n\n继续？")) return;
+    }
+    try {
+      await api("/api/device/interlock/replace", { method: "POST", body: { cancel: replacing } });
+      toast(replacing ? "已取消更换" : "已进入更换模式，请拔掉旧副板并插上新副板", "ok");
+      await refresh();
+      renderSecurity();
+      if (!replacing) watchReplace();
+    } catch (e) {
+      toast(e.message, "err");
+    }
+  });
 
   $("#pin-form").addEventListener("submit", async (e) => {
     e.preventDefault();

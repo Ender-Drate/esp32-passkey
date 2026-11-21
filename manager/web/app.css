@@ -299,7 +299,7 @@ textarea.field { height: 130px; padding: 12px 16px; resize: vertical; line-heigh
 .setting-form .field { flex: 1 1 150px; width: auto; }
 .setting-form.wide { grid-column: 1 / -1; justify-content: flex-start; }
 .setting-form.wide .field { flex: 0 1 240px; }
-.setting-control { display: flex; justify-content: flex-end; }
+.setting-control { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
 .setting-danger .setting-text h3 { color: var(--red); }
 .progress { height: 3px; background: var(--line-soft); margin: -8px 0 24px; }
 .progress .bar { height: 100%; width: 0; background: var(--accent); transition: width 200ms; }

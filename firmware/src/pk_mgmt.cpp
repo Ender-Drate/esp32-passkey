@@ -35,6 +35,8 @@ enum : uint8_t {
     CMD_REBOOT = 0x30,
     CMD_BOOTLOADER = 0x31,
     CMD_FACTORY_RESET = 0x32,
+    CMD_REPLACE_KEY = 0x33,
+    CMD_REPLACE_CANCEL = 0x34,
     CMD_LIST_CREDS = 0x40,
     CMD_DELETE_CRED = 0x41,
     CMD_DELETE_ALL = 0x42,
@@ -189,7 +191,7 @@ static void cmd_info() {
     int n = snprintf(buf, sizeof(buf),
                      "{\"name\":\"%s\",\"version\":\"%s\",\"aaguid\":\"54 45 43 48 58 50 41 53 53 4b 45 59 30 30 30 31\","
                      "\"pin\":%s,\"retries\":%u,\"creds\":%d,\"maxCreds\":%d,\"upMode\":%u,"
-                     "\"il\":%s,\"ilState\":\"%s\",\"ilPaired\":%s,"
+                     "\"il\":%s,\"ilState\":\"%s\",\"ilPaired\":%s,\"ilReplace\":%s,"
                      "\"fsUsed\":%u,\"fsTotal\":%u,\"epoch\":%llu,\"ota\":%s,"
                      "\"boot\":%u,\"reset\":%d}",
                      PK_PRODUCT_NAME, PK_VERSION, ctap::pin_is_set() ? "true" : "false",
@@ -197,6 +199,7 @@ static void cmd_info() {
                      (unsigned)store::settings().upMode,
                      interlock::ready() ? "true" : "false", interlock::state(),
                      interlock::paired() ? "true" : "false",
+                     interlock::replaceMode() ? "true" : "false",
                      (unsigned)LittleFS.usedBytes(),
                      (unsigned)LittleFS.totalBytes(), (unsigned long long)store::now_epoch(),
                      g_otaActive ? "true" : "false",
@@ -381,6 +384,16 @@ static void dispatch(uint8_t cmd, const uint8_t* p, size_t len) {
             size_t off = 0;
             if (!auth_payload(p, len, off)) { send_status(cmd, ST_AUTH); break; }
             ctap::factory_reset();
+            send_status(cmd, ST_OK);
+            break;
+        }
+        case CMD_REPLACE_KEY: {
+            if (!interlock::beginReplace()) { send_status(cmd, ST_AUTH); break; }
+            send_status(cmd, ST_OK);
+            break;
+        }
+        case CMD_REPLACE_CANCEL: {
+            interlock::cancelReplace();
             send_status(cmd, ST_OK);
             break;
         }
