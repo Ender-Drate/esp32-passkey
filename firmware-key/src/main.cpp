@@ -66,6 +66,22 @@ bool parseHex(const char* s, uint8_t* out, size_t n) {
     return s[2 * n] == 0;
 }
 
+bool parseHexN(const char* s, uint8_t* out, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        int hi = hexNibble(s[2 * i]);
+        int lo = hexNibble(s[2 * i + 1]);
+        if (hi < 0 || lo < 0) return false;
+        out[i] = (uint8_t)((hi << 4) | lo);
+    }
+    return true;
+}
+
+bool ctEq(const uint8_t* a, const uint8_t* b, size_t n) {
+    uint8_t d = 0;
+    for (size_t i = 0; i < n; i++) d |= a[i] ^ b[i];
+    return d == 0;
+}
+
 void toHex(const uint8_t* in, size_t n, char* out) {
     static const char* digits = "0123456789abcdef";
     for (size_t i = 0; i < n; i++) {
@@ -85,6 +101,22 @@ void proof(const uint8_t nonce[16], uint8_t out[32]) {
     mbedtls_md_setup(&ctx, info, 1);
     mbedtls_md_hmac_starts(&ctx, g_key, sizeof(g_key));
     mbedtls_md_hmac_update(&ctx, msg, sizeof(msg));
+    mbedtls_md_hmac_finish(&ctx, out);
+    mbedtls_md_free(&ctx);
+}
+
+void hmacTag(const uint8_t nonce[12], const char* tag, uint8_t out[32]) {
+    uint8_t msg[12 + 16];
+    size_t n = strlen(tag);
+    if (n > 16) n = 16;
+    memcpy(msg, nonce, 12);
+    memcpy(msg + 12, tag, n);
+    const mbedtls_md_info_t* info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    mbedtls_md_context_t ctx;
+    mbedtls_md_init(&ctx);
+    mbedtls_md_setup(&ctx, info, 1);
+    mbedtls_md_hmac_starts(&ctx, g_key, sizeof(g_key));
+    mbedtls_md_hmac_update(&ctx, msg, 12 + n);
     mbedtls_md_hmac_finish(&ctx, out);
     mbedtls_md_free(&ctx);
 }
@@ -130,6 +162,43 @@ void handleLine(char* line) {
         proof(nonce, mac);
         toHex(mac, sizeof(mac), hex);
         g_link.printf("P %s\n", hex);
+        return;
+    }
+    if (strncmp(line, "R ", 2) == 0 || strncmp(line, "W ", 2) == 0) {
+        bool wipe = line[0] == 'W';
+        if (strlen(line) < 26 + 1 + 64) {
+            g_link.println("ERR BADHEX");
+            return;
+        }
+        if (line[26] != ' ') {
+            g_link.println("ERR BADHEX");
+            return;
+        }
+        uint8_t nonce[12], got[32], want[32];
+        if (!parseHexN(line + 2, nonce, sizeof(nonce)) ||
+            !parseHex(line + 27, got, sizeof(got))) {
+            g_link.println("ERR BADHEX");
+            return;
+        }
+        if (!g_haveKey) {
+            g_link.println("ERR NOKEY");
+            return;
+        }
+        hmacTag(nonce, wipe ? "TECHX-WIPE" : "TECHX-RELINK", want);
+        if (!ctEq(got, want, sizeof(got))) {
+            g_link.println("ERR AUTH");
+            return;
+        }
+        prefs.remove("key");
+        memset(g_key, 0, sizeof(g_key));
+        g_haveKey = false;
+        if (wipe) {
+            prefs.remove("kek");
+            memset(g_kek, 0, sizeof(g_kek));
+        }
+        g_link.println(wipe ? "OK W" : "OK R");
+        led(40, 0, 0);
+        Serial.println(wipe ? "[key] wiped link key + KEK" : "[key] link key cleared, KEK kept");
         return;
     }
     if (strncmp(line, "E ", 2) == 0) {

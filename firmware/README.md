@@ -102,6 +102,9 @@ GND ─────────────── GND
   **不删除 Passkey**；超时/取消则保留旧 key 和旧包裹，旧副板继续可用。
 - **KEK 只在副板**：主板 NVS 只有 `AES-GCM(KEK, DEK)`；更换副板只重新包裹 DEK，
   不重新加密整个凭据库。
+- 管理器「重置配对」：清除两块板的 link key，**保留副板 KEK 和 Passkey**，随后自动
+  重新配对；「彻底清除」：清除副板 link key + KEK，并同时恢复出厂主板（Passkey 删除）。
+  两者都需要设备 PIN。
 - 运行时每 700 ms 一次 challenge；2.5 s 没有有效应答 → 红灯 + 拒绝
   `makeCredential` / `getAssertion` / U2F（`0x27 OPERATION_DENIED`）。
 - **PIN 仍然存在主板**，由电脑端输入；副板只是额外的物理因子，不保存 PIN。

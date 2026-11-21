@@ -62,9 +62,12 @@ pio run -d firmware-key -t upload --upload-port COM11
 
 ## 清除 key（换主板 / 重新配对）
 
-上电时按住副板 **BOOT** 3 秒以上，红灯亮起后松开，link key **和 KEK** 一起被清除。
-清除 KEK 后，主板 NVS 里用旧 KEK 包裹的 DEK 就解不开了；如果还要保留 Passkey，
-必须用管理器的「更换副板」流程（旧副板还活着、能完成验证）来转移 DEK，不能先清副板。
+- **重置配对**：管理器「安全 → 第二块板 → 重置配对」，验证主板 PIN 后，两块板只清
+  link key、保留 KEK 和 Passkey，随后自动重新配对。
+- **彻底清除**：管理器「彻底清除」，验证 PIN 后清掉 link key + KEK，并同时恢复出厂
+  主板（Passkey 删除），不可恢复。
+- 物理方式：上电时按住副板 **BOOT** 3 秒以上，link key 和 KEK 一起被清除；之后
+  主板上的旧 DEK 将无法解开，除非已经走过「更换副板」。
 
 ## 协议
 
@@ -75,6 +78,8 @@ pio run -d firmware-key -t upload --upload-port COM11
 | `K <64 hex>` | 空板保存 key | `OK K` / `ERR HASKEY` |
 | `C <32 hex>` | 16 字节 nonce | `P <64 hex>` HMAC / `ERR NOKEY` |
 | `E <24 hex>` | 12 字节 nonce | `E <96 hex>`：用 link key 加密的 KEK |
+| `R <24 hex> <64 hex>` | 重置配对（HMAC 认证） | `OK R`，只清 link key，KEK 保留 |
+| `W <24 hex> <64 hex>` | 彻底清除（HMAC 认证） | `OK W`，清 link key + KEK |
 | `S` | 状态 | `S 1` / `S 0` |
 | `PING` | 存活 | `PONG` |
 

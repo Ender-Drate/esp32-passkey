@@ -271,6 +271,21 @@ def api_replace_key(body, m):
         return {"ok": True, "info": d.info()}
 
 
+@route("POST", r"/api/device/interlock/clear")
+def api_clear_keyboard(body, m):
+    mode = body.get("mode", "pairing")
+    pin = body.get("pin", "")
+    if mode not in ("pairing", "full"):
+        raise ApiError("mode 必须是 pairing 或 full", 400)
+    with DEVICE_LOCK:
+        d = device()
+        try:
+            d.clear_keyboard(pin, wipe=(mode == "full"))
+        except pkdev.PasskeyError as e:
+            raise ApiError(str(e), 403 if "副板" in str(e) else 401)
+        return {"ok": True, "info": d.info()}
+
+
 @route("POST", r"/api/device/reboot")
 def api_reboot(body, m):
     with DEVICE_LOCK:

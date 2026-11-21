@@ -26,6 +26,11 @@ bool beginReplace();
 void cancelReplace();
 bool replaceMode();
 
+// Ask the second board to erase its pairing data.  wipeKek=true also erases
+// the KEK (the caller must then wipe the main credential store).  The request
+// is authenticated with the link key over the UART.
+bool peerReset(bool wipeKek);
+
 // Erase the link key on this board and start pairing a new second board.
 void forget();
 

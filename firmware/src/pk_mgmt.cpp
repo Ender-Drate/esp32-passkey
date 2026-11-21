@@ -37,6 +37,7 @@ enum : uint8_t {
     CMD_FACTORY_RESET = 0x32,
     CMD_REPLACE_KEY = 0x33,
     CMD_REPLACE_CANCEL = 0x34,
+    CMD_CLEAR_KEYBOARD = 0x35,
     CMD_LIST_CREDS = 0x40,
     CMD_DELETE_CRED = 0x41,
     CMD_DELETE_ALL = 0x42,
@@ -408,6 +409,23 @@ static void dispatch(uint8_t cmd, const uint8_t* p, size_t len) {
         }
         case CMD_REPLACE_CANCEL: {
             interlock::cancelReplace();
+            send_status(cmd, ST_OK);
+            break;
+        }
+        case CMD_CLEAR_KEYBOARD: {
+            if (!interlock::ready()) { send_status(cmd, ST_LOCKED); break; }
+            if (!ctap::pin_is_set()) { send_status(cmd, ST_AUTH); break; }
+            if (len < 2) { send_status(cmd, ST_ERROR); break; }
+            uint8_t mode = p[0];
+            if (mode > 1) { send_status(cmd, ST_ERROR); break; }
+            size_t off = 0;
+            if (!auth_payload(p + 1, len - 1, off)) { send_status(cmd, ST_AUTH); break; }
+            bool full = mode == 1;
+            if (!interlock::peerReset(full)) {
+                send_status(cmd, ST_ERROR);
+                break;
+            }
+            if (full) ctap::factory_reset();
             send_status(cmd, ST_OK);
             break;
         }

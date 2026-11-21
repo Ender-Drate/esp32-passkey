@@ -39,6 +39,7 @@ CMD_BOOTLOADER = 0x31
 CMD_FACTORY_RESET = 0x32
 CMD_REPLACE_KEY = 0x33
 CMD_REPLACE_CANCEL = 0x34
+CMD_CLEAR_KEYBOARD = 0x35
 CMD_LIST_CREDS = 0x40
 CMD_DELETE_CRED = 0x41
 CMD_DELETE_ALL = 0x42
@@ -224,6 +225,16 @@ class Device:
             raise PasskeyError("请先接好并验证旧副板")
         if st != ST_OK:
             raise PasskeyError("replace key board failed")
+
+    def clear_keyboard(self, pin: str = "", wipe: bool = False):
+        p = pin.encode("utf-8")
+        st, _ = self.xfer(CMD_CLEAR_KEYBOARD, bytes([1 if wipe else 0, len(p)]) + p, timeout=10)
+        if st == ST_LOCKED:
+            raise PasskeyError("副板未连接，无法清除")
+        if st == ST_AUTH:
+            raise PasskeyError("PIN 错误，或设备未设置 PIN")
+        if st != ST_OK:
+            raise PasskeyError("clear keyboard failed")
 
     def reboot(self):
         try:

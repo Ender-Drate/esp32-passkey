@@ -454,6 +454,10 @@
         replaceBtn.textContent = d && d.ilReplace === true ? "取消更换" : "更换副板";
         replaceBtn.disabled = !d;
       }
+      for (const id of ["btn-relink-key", "btn-wipe-key"]) {
+        const el = $(`#${id}`);
+        if (el) el.disabled = !d || d.il !== true || d.ilReplace === true;
+      }
       const encPill = $("#enc-pill");
       if (encPill) {
         if (!d) {
@@ -509,6 +513,49 @@
       toast(e.message, "err");
     }
   });
+
+  async function clearSecondBoard(mode) {
+    const d = state.device;
+    if (!d) return toast("请先连接设备", "err");
+    if (!d.pin) return toast("请先在安全页设置设备 PIN", "err");
+    if (d.il !== true) return toast("请先接好并验证副板", "err");
+    const text = mode === "full"
+      ? "彻底清除会同时删除：\n· 副板里的 link key + KEK\n· 主板上的全部 Passkey\n\n不可恢复。继续？"
+      : "重置配对会清除两块板的 link key，但保留副板 KEK 和主板 Passkey；完成后会自动重新配对。继续？";
+    const pin = prompt(mode === "full" ? "输入设备 PIN 以彻底清除副板" : "输入设备 PIN 以重置副板配对");
+    if (pin === null) return;
+    if (!pin) return toast("PIN 不能为空", "err");
+    if (!confirm(text)) return;
+    try {
+      await api("/api/device/interlock/clear", { method: "POST", body: { mode, pin } });
+      toast(mode === "full" ? "副板和主板已清空" : "配对已重置，正在重新配对", "ok");
+      await refresh();
+      renderSecurity();
+      if (mode === "pairing") watchRelink();
+      if (mode === "full") {
+        $("#pin-current").value = $("#pin-new").value = "";
+      }
+    } catch (e) {
+      toast(e.message, "err");
+    }
+  }
+
+  $("#btn-relink-key")?.addEventListener("click", () => clearSecondBoard("pairing"));
+  $("#btn-wipe-key")?.addEventListener("click", () => clearSecondBoard("full"));
+
+  let relinkWatch = null;
+  function watchRelink() {
+    if (relinkWatch) clearInterval(relinkWatch);
+    relinkWatch = setInterval(async () => {
+      await refresh();
+      renderSecurity();
+      if (state.device && state.device.il === true) {
+        clearInterval(relinkWatch);
+        relinkWatch = null;
+        toast("副板已重新配对，Passkey 保留", "ok");
+      }
+    }, 2000);
+  }
 
   $("#pin-form").addEventListener("submit", async (e) => {
     e.preventDefault();

@@ -55,6 +55,11 @@ uint8_t g_kekTarget = 0;  // 1 = active key, 2 = pending key
 uint32_t g_lastKek = 0;
 uint32_t g_replaceDeadline = 0;
 uint32_t g_lastPendingPair = 0;
+volatile uint8_t g_peerReq = 0;    // 0 none, 1 relink, 2 wipe
+volatile uint8_t g_peerState = 0;  // 0 idle, 1 pending, 2 ok, 3 fail
+volatile uint8_t g_peerMode = 0;
+uint8_t g_peerNonce[12];
+uint32_t g_peerSent = 0;
 bool g_pairedLoaded = false;
 volatile uint8_t g_state = 0;  // 0 pairing, 1 waiting, 2 ok, 3 mismatch
 
@@ -174,6 +179,40 @@ void sendKekRequest(const uint8_t key[32], uint8_t target) {
     g_awaitingKek = true;
     g_lastKek = millis();
     g_kekTries++;
+}
+
+void relinkLocal() {
+    if (!random_bytes(g_key, sizeof(g_key))) return;
+    saveKey();
+    g_paired = false;
+    g_pairedLoaded = true;
+    g_proofValid = false;
+    g_ready = false;
+    g_lastProof = 0;
+    g_state = 0;
+    g_hasPending = false;
+    g_replaceMode = false;
+    g_pendingVerified = false;
+    g_lastPair = millis() - 3000;
+    led::locked(true);
+    Serial.println("[interlock] link key reset; re-pairing with same key board");
+}
+
+void sendPeerReset(bool wipe) {
+    if (!random_bytes(g_peerNonce, sizeof(g_peerNonce))) return;
+    const char* tag = wipe ? "TECHX-WIPE" : "TECHX-RELINK";
+    uint8_t msg[12 + 16];
+    memcpy(msg, g_peerNonce, 12);
+    memcpy(msg + 12, tag, strlen(tag));
+    uint8_t mac[32];
+    hmac_sha256(g_key, sizeof(g_key), msg, 12 + strlen(tag), mac);
+    char nh[25], mh[65];
+    toHex(g_peerNonce, sizeof(g_peerNonce), nh);
+    toHex(mac, sizeof(mac), mh);
+    g_peerMode = wipe ? 2 : 1;
+    g_peerState = 1;
+    g_peerSent = millis();
+    g_serial.printf("%c %s %s\n", wipe ? 'W' : 'R', nh, mh);
 }
 
 void sendChallenge() {
@@ -304,7 +343,18 @@ void handleLine(char* line) {
         Serial.println("[interlock] second board stored the link key");
         return;
     }
+    if (strncmp(line, "OK R", 4) == 0 || strncmp(line, "OK W", 4) == 0) {
+        g_peerState = 2;
+        if (line[3] == 'R') {
+            relinkLocal();
+        } else {
+            g_ready = false;
+            led::locked(true);
+        }
+        return;
+    }
     if (strncmp(line, "ERR", 3) == 0) {
+        if (g_peerState == 1) g_peerState = 3;
         if (strncmp(line, "ERR HASKEY", 10) == 0) {
             g_state = 3;
             Serial.println("[interlock] peer already has a different key; wipe this board to re-pair");
@@ -363,6 +413,16 @@ void task(void*) {
                 led::locked(true);
                 Serial.println("[interlock] replace mode: old board verified, waiting for new board");
             }
+        }
+
+        if (g_peerReq && g_peerState == 0) {
+            bool wipe = g_peerReq == 2;
+            g_peerReq = 0;
+            sendPeerReset(wipe);
+        }
+        if (g_peerState == 1 && (uint32_t)(now - g_peerSent) > 2000) {
+            g_peerState = 3;
+            Serial.println("[interlock] peer reset timeout");
         }
 
         // Support both common wirings:
@@ -479,6 +539,18 @@ void cancelReplace() {
     Serial.println("[interlock] replace cancelled");
 }
 
+bool peerReset(bool wipeKek) {
+    if (!g_ready) return false;
+    g_peerState = 0;
+    g_peerReq = wipeKek ? 2 : 1;
+    uint32_t start = millis();
+    while (g_peerState == 0 || g_peerState == 1) {
+        if (millis() - start > 2500) break;
+        delay(10);
+    }
+    return g_peerState == 2;
+}
+
 bool replaceMode() { return g_replaceMode || g_replaceRequest; }
 
 void forget() {
@@ -542,6 +614,7 @@ bool paired() { return true; }
 bool beginReplace() { return false; }
 void cancelReplace() {}
 bool replaceMode() { return false; }
+bool peerReset(bool) { return false; }
 void forget() {}
 const char* state() { return "disabled"; }
 uint32_t lastProofAgeMs() { return 0; }
