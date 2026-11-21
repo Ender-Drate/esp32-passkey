@@ -111,13 +111,15 @@
   function renderDevice() {
     const d = state.device;
     const ilOk = d ? d.il !== false : false;
+    const ilPaired = d ? d.ilPaired !== false : true;
     $("#device-dot").className = "dot " + (d ? (ilOk ? "is-live" : "is-lock") : "is-off");
     $("#device-name").textContent = d ? "已连接" : "未连接";
     $("#device-port").textContent = d ? d.port : "";
     $("#device-name").title = d ? `${d.port} · ${d.pin ? "PIN 已设置" : "未设 PIN"}` : "";
     const badge = $("#hero-badge");
     if (d) {
-      badge.innerHTML = `<span class="dot ${ilOk ? "is-live" : "is-lock"}"></span><span>已连接 · ${esc(d.port)}${ilOk ? "" : " · 副板未连接"}</span>`;
+      const note = ilOk ? "" : ilPaired ? " · 副板未连接" : " · 副板未配对";
+      badge.innerHTML = `<span class="dot ${ilOk ? "is-live" : "is-lock"}"></span><span>已连接 · ${esc(d.port)}${note}</span>`;
     } else {
       badge.innerHTML = `<span class="dot"></span><span>设备未连接</span>`;
     }
@@ -434,7 +436,7 @@
         ilPill.textContent = "—";
       } else if (d.il === false) {
         ilPill.className = "pill bad";
-        ilPill.textContent = "未连接";
+        ilPill.textContent = d.ilPaired === false ? "未配对" : "未连接";
       } else {
         ilPill.className = "pill ok";
         ilPill.textContent = "已连接";

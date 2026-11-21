@@ -13,6 +13,11 @@ void poll();
 // within the last PK_IL_PROOF_TIMEOUT_MS.
 bool ready();
 
+// True once a second board has ever completed pairing.  After this the main
+// board never hands out the link key again; replacing the second board
+// requires a factory reset of the main board.
+bool paired();
+
 // Erase the link key on this board and start pairing a new second board.
 void forget();
 

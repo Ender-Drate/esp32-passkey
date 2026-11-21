@@ -33,6 +33,10 @@ pio run -d firmware-key -t upload --upload-port COM11
 4. 主板日志出现 `second board stored the link key` 和 `second board OK`，LED 转蓝，
    管理器「安全 → 第二块板」显示已连接。
 
+**配对是一次性的。** 主板第一次收到有效证明后会把 `paired` 写入 NVS，之后不再
+发送 `K`。换一块副板、清空副板 key、或副板 key 不匹配时，主板只会红灯锁死；
+必须先恢复出厂清空主板（凭据和 link key 一起清除），再重新配对。
+
 ## LED
 
 | 状态 | 含义 |
@@ -42,12 +46,9 @@ pio run -d firmware-key -t upload --upload-port COM11
 
 ## 清除 key（换主板 / 重新配对）
 
-上电时按住副板 **BOOT** 3 秒以上，红灯亮起后松开，key 被清除，重新进入配对。
-也可以在配对前先擦除副板 NVS：
-
-```bash
-pio run -d firmware-key -t erase
-```
+上电时按住副板 **BOOT** 3 秒以上，红灯亮起后松开，key 被清除。
+但注意：**只清副板没有用**——主板已经配对过就不会再发 key，必须同时对主板做
+恢复出厂（会清除主板上的凭据），两边都清空后才能重新配对。
 
 ## 协议
 

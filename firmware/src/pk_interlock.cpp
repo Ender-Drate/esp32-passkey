@@ -40,6 +40,8 @@ Preferences g_prefs;
 uint8_t g_key[32];
 volatile bool g_haveKey = false;
 volatile bool g_ready = false;
+volatile bool g_paired = false;
+bool g_pairedLoaded = false;
 volatile uint8_t g_state = 0;  // 0 pairing, 1 waiting, 2 ok, 3 mismatch
 
 uint8_t g_nonce[16];
@@ -90,7 +92,14 @@ void loadOrCreateKey() {
     size_t len = g_prefs.getBytesLength("key");
     if (len == sizeof(g_key) && g_prefs.getBytes("key", g_key, sizeof(g_key)) == sizeof(g_key)) {
         g_haveKey = true;
-        Serial.println("[interlock] loaded link key");
+        if (!g_pairedLoaded) {
+            // Devices upgraded from the first interlock build have a key but
+            // no flag.  Treat them as already paired so an attacker cannot
+            // pair a blank board during the upgrade.
+            g_paired = g_prefs.getBool("paired", true);
+            g_pairedLoaded = true;
+        }
+        Serial.printf("[interlock] loaded link key (paired=%d)\n", g_paired ? 1 : 0);
         return;
     }
     if (!random_bytes(g_key, sizeof(g_key))) {
@@ -99,6 +108,9 @@ void loadOrCreateKey() {
     }
     saveKey();
     g_haveKey = true;
+    g_paired = false;
+    g_pairedLoaded = true;
+    g_prefs.putBool("paired", false);
     Serial.println("[interlock] generated new link key, pairing...");
 }
 
@@ -133,6 +145,15 @@ void handleLine(char* line) {
         if (ct_equal(got, want, sizeof(want))) {
             g_lastProof = millis();
             g_awaiting = false;
+            if (!g_paired) {
+                // First successful pairing: from now on the key is never
+                // offered again.  A replacement second board requires a
+                // factory reset of this board.
+                g_paired = true;
+                g_pairedLoaded = true;
+                g_prefs.putBool("paired", true);
+                Serial.println("[interlock] first pairing complete; locked to this board");
+            }
             if (!g_ready) {
                 g_ready = true;
                 g_state = 2;
@@ -156,7 +177,12 @@ void handleLine(char* line) {
         return;
     }
     if (strncmp(line, "ERR", 3) == 0) {
-        Serial.printf("[interlock] peer: %s\n", line);
+        if (strncmp(line, "ERR HASKEY", 10) == 0) {
+            g_state = 3;
+            Serial.println("[interlock] peer already has a different key; wipe this board to re-pair");
+        } else {
+            Serial.printf("[interlock] peer: %s\n", line);
+        }
         return;
     }
     if (strncmp(line, "S ", 2) == 0) {
@@ -214,8 +240,8 @@ void task(void*) {
             sendChallenge();
         }
 
-        // Pairing: keep offering the key until the peer proves it has it.
-        if (g_haveKey && !g_ready && (uint32_t)(now - g_lastPair) > 3000) {
+        // Pairing is one-shot: only an unpaired main board hands out the key.
+        if (g_haveKey && !g_paired && (uint32_t)(now - g_lastPair) > 3000) {
             sendPair();
         }
 
@@ -258,19 +284,24 @@ bool ready() { return g_ready; }
 void forget() {
     g_ready = false;
     g_haveKey = false;
+    g_paired = false;
+    g_pairedLoaded = true;
     g_state = 0;
     g_keyAnnounced = false;
     g_awaiting = false;
     g_lastProof = 0;
     g_prefs.remove("key");
+    g_prefs.putBool("paired", false);
     led::locked(true);
     Serial.println("[interlock] link key forgotten, re-pairing");
 }
 
+bool paired() { return g_paired; }
+
 const char* state() {
     if (g_ready) return "ok";
+    if (!g_paired) return "pairing";
     if (g_state == 3) return "mismatch";
-    if (g_state == 0) return "pairing";
     return "waiting";
 }
 
@@ -289,6 +320,7 @@ namespace interlock {
 void begin() {}
 void poll() {}
 bool ready() { return true; }
+bool paired() { return true; }
 void forget() {}
 const char* state() { return "disabled"; }
 uint32_t lastProofAgeMs() { return 0; }
