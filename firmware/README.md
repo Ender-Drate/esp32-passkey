@@ -49,6 +49,8 @@ HID（CTAPHID）+ CDC（管理协议 / OTA）。
 - 开机流程：副板证明 link key → 副板用 link key 加密把 **KEK** 发给主板 → 主板用
   KEK 解开 NVS 里的 DEK → 用 DEK 把 `/creds.bin` 解密到 RAM。没有副板时主板上只有
   密文和被包裹的 DEK，无法得到私钥。
+- **副板断开 2.5 秒后，主板清空 RAM 中的 DEK/KEK 和凭据**；重新接上副板会再次
+  走 KEK 流程解密。PIN 最短长度提高到 **6 位**（已有 PIN 继续有效，修改/新设需 ≥6）。
 - 分区表：两个 3 MB OTA 槽 + ~9.9 MB 数据分区（`partitions.csv`）。
 
 ## 调试

@@ -96,6 +96,9 @@ python tests/ble_ctap_test.py    # BLE（需 -DPK_BLE_ALIAS=1 构建）
   handle 仍可用 masterKey 解开（兼容路径）。`/blob.bin` 同样用 DEK 做 PKB1 密文。
 - 凭据管理、largeBlob、authenticatorConfig、OTA、BOOTLOADER、修改 PIN、切换
   自动确认都要求副板互锁；只插主板时这些接口返回 `0x27` / `ST_LOCKED`。
+- 副板 proof 超时 2.5 秒 → 主循环安全地清空 RAM 中的 DEK/KEK 与凭据数组；
+  重新接上副板后重新解 KEK/DEK 并解密，已实测 3 条凭据可恢复。
+- PIN 最短长度 6 位；已有 PIN 仍可验证，修改或新设必须 ≥6。
 - 管理器：密码库 `scrypt(N=2^15) + AES-256-GCM`，主密码不落盘；只监听
   `127.0.0.1`；导出为明文，需自行保管。
 - 触摸确认：BOOT 键；管理器可切「自动确认」但仅建议测试时使用。

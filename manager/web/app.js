@@ -514,7 +514,8 @@
     e.preventDefault();
     const current = $("#pin-current").value;
     const next = $("#pin-new").value;
-    if (next.length < 4) return toast("新 PIN 至少 4 位", "err");
+    const minPin = state.device?.minPin || 6;
+    if (next.length < minPin) return toast(`新 PIN 至少 ${minPin} 位`, "err");
     try {
       const action = state.device && state.device.pin ? "change" : "set";
       await api("/api/device/pin", { method: "POST", body: { action, pin: current, newPin: next } });

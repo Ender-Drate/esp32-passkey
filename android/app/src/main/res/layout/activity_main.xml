@@ -132,7 +132,7 @@
             android:layout_width="match_parent"
             android:layout_height="46dp"
             android:layout_marginTop="10dp"
-            android:hint="@string/pin_new_hint"
+            android:hint="新 PIN，至少 6 位"
             android:importantForAutofill="no"
             android:inputType="numberPassword"
             android:maxLength="63" />

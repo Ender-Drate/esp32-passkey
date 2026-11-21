@@ -51,6 +51,7 @@ void loop() {
     ble::poll();
     ctap::poll();
     store::flush_if_dirty();
+    store::poll_security();
     led::poll();
     delay(1);
 }

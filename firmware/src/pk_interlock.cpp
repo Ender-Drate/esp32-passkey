@@ -259,6 +259,7 @@ void handleLine(char* line) {
             g_state = 3;
             g_awaiting = false;
             led::locked(true);
+            store::request_lock();
             if (!g_keyAnnounced) {
                 Serial.println("[interlock] proof mismatch (different key?)");
                 g_keyAnnounced = true;
@@ -427,6 +428,7 @@ void task(void*) {
             g_proofValid = false;
             g_state = 1;
             led::locked(true);
+            if (!g_replaceMode) store::request_lock();
             Serial.println("[interlock] proof timeout, locked");
         }
         if (g_proofValid && (uint32_t)(now - g_lastProof) > PK_IL_PROOF_TIMEOUT_MS) {

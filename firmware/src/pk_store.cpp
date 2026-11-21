@@ -32,6 +32,7 @@ static uint8_t* g_plain = nullptr;
 static uint8_t* g_cipher = nullptr;
 static const size_t SCRATCH_CAP = 32768;
 static char g_err[48] = {0};
+static volatile bool g_lockRequested = false;
 
 static void set_err(const char* e) {
     strncpy(g_err, e, sizeof(g_err) - 1);
@@ -378,6 +379,8 @@ bool rewrap_dek(const uint8_t newKek[32]) {
 
 bool credentials_unlocked() { return g_unlocked; }
 
+void request_lock() { g_lockRequested = true; }
+
 const char* lastError() { return g_err; }
 
 bool encrypted_at_rest() {
@@ -624,6 +627,24 @@ void large_blob_reset() {
     LittleFS.remove(BLOB_FILE);
     g_blobSize = 0;
     g_blobLoaded = true;
+}
+
+void poll_security() {
+    if (!g_lockRequested) return;
+    g_lockRequested = false;
+    if (!g_unlocked) return;
+    if (g_creds && g_credCount > 0) {
+        memset(g_creds, 0, sizeof(Credential) * g_credCount);
+    }
+    g_credCount = 0;
+    memset(g_dek, 0, sizeof(g_dek));
+    memset(g_kek, 0, sizeof(g_kek));
+    g_unlocked = false;
+    g_legacyPlain = false;
+    g_blobSize = 0;
+    g_blobLoaded = false;
+    set_err("locked");
+    Serial.println("[store] second board lost; RAM keys and credentials wiped");
 }
 
 uint64_t now_epoch() {

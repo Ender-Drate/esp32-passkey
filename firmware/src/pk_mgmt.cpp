@@ -194,7 +194,7 @@ static void cmd_info() {
                      "\"pin\":%s,\"retries\":%u,\"creds\":%d,\"maxCreds\":%d,\"upMode\":%u,"
                      "\"il\":%s,\"ilState\":\"%s\",\"ilPaired\":%s,\"ilReplace\":%s,"
                      "\"ilRx\":%u,\"ilLines\":%u,\"ilLast\":\"%s\",\"ilDbg\":\"%s\","
-                     "\"stErr\":\"%s\","
+                     "\"stErr\":\"%s\",\"minPin\":%u,"
                      "\"enc\":%s,"
                      "\"fsUsed\":%u,\"fsTotal\":%u,\"epoch\":%llu,\"ota\":%s,"
                      "\"boot\":%u,\"reset\":%d}",
@@ -206,7 +206,7 @@ static void cmd_info() {
                      interlock::replaceMode() ? "true" : "false",
                      (unsigned)interlock::rxBytes(), (unsigned)interlock::rxLines(),
                      interlock::lastLine(), interlock::debugText(),
-                     store::lastError(),
+                     store::lastError(), (unsigned)store::settings().minPinLen,
                      store::encrypted_at_rest() ? "true" : "false",
                      (unsigned)LittleFS.usedBytes(),
                      (unsigned)LittleFS.totalBytes(), (unsigned long long)store::now_epoch(),

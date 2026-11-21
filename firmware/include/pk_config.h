@@ -53,7 +53,7 @@
 #define PK_MAX_MSG_SIZE             8192
 #define PK_MAX_LARGE_BLOB           8192
 #define PK_MAX_CBOR_CRED_LIST       16
-#define PK_PIN_MIN_LEN              4
+#define PK_PIN_MIN_LEN              6
 #define PK_PIN_MAX_LEN              63
 #define PK_PIN_RETRIES              8
 #define PK_DEFAULT_UP_TIMEOUT_MS    30000

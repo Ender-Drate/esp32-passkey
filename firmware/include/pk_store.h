@@ -69,6 +69,12 @@ bool credentials_unlocked();
 bool encrypted_at_rest();
 const char* lastError();
 
+// Deferred zeroisation: the interlock task only requests the lock; the main
+// loop executes it between CTAP/management commands so no command is using the
+// credential array while it is wiped.
+void request_lock();
+void poll_security();
+
 const uint8_t* master_key();
 
 Settings& settings();
