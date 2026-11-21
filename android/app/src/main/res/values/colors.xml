@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FFFFFF</color>
+    <color name="band">#F5F5F7</color>
+    <color name="ink">#1D1D1F</color>
+    <color name="ink2">#6E6E73</color>
+    <color name="ink3">#86868B</color>
+    <color name="line">#D2D2D7</color>
+    <color name="line_soft">#E8E8ED</color>
+    <color name="accent">#0071E3</color>
+    <color name="link">#0066CC</color>
+    <color name="green">#30D158</color>
+    <color name="red">#D70015</color>
+    <color name="navy">#0F172A</color>
+    <color name="white">#FFFFFF</color>
+</resources>

@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TechXPassKey</title>
+<link rel="stylesheet" href="/app.css">
+<link rel="icon" href="/favicon.svg">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3v4m0 10v4M3 12h4m10 0h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m0 0 4 4m-4-4L8 8M4 20h16"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></symbol>
+  </defs>
+</svg>
+
+<header class="gn">
+  <div class="gn-wrap">
+    <a class="gn-brand" href="#" data-view="overview">TechXPassKey</a>
+    <nav class="gn-nav" aria-label="主导航">
+      <button class="nav-item is-active" data-view="overview">概览</button>
+      <button class="nav-item" data-view="passkeys">Passkeys<span class="gn-count" id="nav-passkeys">—</span></button>
+      <button class="nav-item" data-view="vault">密码库</button>
+      <button class="nav-item" data-view="security">安全</button>
+      <button class="nav-item" data-view="demo">演示</button>
+      <button class="nav-item" data-view="about">关于</button>
+    </nav>
+    <div class="gn-status" title="设备状态">
+      <span class="dot" id="device-dot"></span>
+      <span class="gn-device" id="device-name">未连接</span>
+      <span class="gn-port" id="device-port"></span>
+    </div>
+  </div>
+</header>
+
+<main class="page">
+  <div class="page-head">
+    <p class="eyebrow" id="eyebrow">TECHXPASSKEY</p>
+    <div class="page-head-row">
+      <h1 id="page-title">概览</h1>
+      <div class="page-tools">
+        <label class="search">
+          <input id="global-search" type="search" placeholder="搜索" autocomplete="off" aria-label="搜索">
+        </label>
+        <button class="text-link" id="btn-refresh">刷新</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OVERVIEW -->
+  <section class="view" data-view="overview">
+    <div class="hero">
+      <p class="hero-badge" id="hero-badge"><span class="dot"></span><span>正在检测设备</span></p>
+      <h2 class="hero-title">你的 Passkey，<br>握在自己手里。</h2>
+      <p class="hero-sub">TechXPassKey 把一枚 FIDO2 安全密钥做进 ESP32-S3。注册、登录、PIN 和凭据全部离线完成，插上就能用。</p>
+      <div class="hero-links">
+        <button class="text-link" id="btn-connect">连接设备 <svg class="icon"><use href="#i-chevron"/></svg></button>
+        <button class="text-link" id="btn-go-passkeys">进一步了解 Passkeys <svg class="icon"><use href="#i-chevron"/></svg></button>
+      </div>
+    </div>
+
+    <div class="band">
+      <div class="band-inner specs">
+        <div class="spec">
+          <span>Passkeys</span>
+          <strong id="stat-passkeys">—</strong>
+          <em id="stat-passkeys-foot">常驻凭据</em>
+        </div>
+        <div class="spec">
+          <span>密码条目</span>
+          <strong id="stat-vault">—</strong>
+          <em id="stat-vault-foot">加密存储</em>
+        </div>
+        <div class="spec">
+          <span>设备 PIN</span>
+          <strong id="stat-pin">—</strong>
+          <em id="stat-pin-foot">保护设备操作</em>
+        </div>
+        <div class="spec">
+          <span>剩余容量</span>
+          <strong id="stat-space">—</strong>
+          <em>可再存凭据</em>
+        </div>
+      </div>
+    </div>
+
+    <section class="block">
+      <div class="block-head">
+        <h2>最近的 Passkey</h2>
+        <button class="text-link" data-view="passkeys">全部 <svg class="icon"><use href="#i-chevron"/></svg></button>
+      </div>
+      <div class="list" id="overview-passkeys">
+        <div class="empty">连接设备后显示 Passkey</div>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2>快速操作</h2>
+      <div class="action-list">
+        <button class="action-row" data-action="set-pin">
+          <span><strong>设置设备 PIN</strong><em>防止他人使用你的密钥</em></span>
+          <svg class="icon"><use href="#i-chevron"/></svg>
+        </button>
+        <button class="action-row" data-action="sync-time">
+          <span><strong>同步时间</strong><em>让凭据的时间戳保持准确</em></span>
+          <svg class="icon"><use href="#i-chevron"/></svg>
+        </button>
+        <button class="action-row" data-action="ota">
+          <span><strong>更新固件</strong><em>通过 USB 写入新的 firmware.bin</em></span>
+          <svg class="icon"><use href="#i-chevron"/></svg>
+        </button>
+        <button class="action-row" data-action="demo">
+          <span><strong>浏览器演示</strong><em>现场注册并登录一次</em></span>
+          <svg class="icon"><use href="#i-chevron"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <p class="footnote">FIDO2 · CTAP 2.1 · U2F · USB HID 与 BLE · 凭据保存在设备的 flash 中</p>
+  </section>
+
+  <!-- PASSKEYS -->
+  <section class="view is-hidden" data-view="passkeys">
+      <div class="block-head">
+      <div>
+        <h2>全部凭据</h2>
+        <p class="muted">通过 credentialManagement（CTAP 2.1）读取，保存在 ESP32 的 flash 中。</p>
+      </div>
+    </div>
+    <div class="list" id="passkey-list">
+      <div class="empty">正在读取…</div>
+    </div>
+    <p class="footnote">删除 Passkey 需要设备 PIN（若已设置），删除后该网站将无法再用这块设备登录。</p>
+  </section>
+
+  <!-- VAULT -->
+  <section class="view is-hidden" data-view="vault">
+    <div id="vault-locked" class="vault-lock">
+      <h2 id="unlock-title">密码库</h2>
+      <p class="vault-sub" id="unlock-sub">密码库使用 scrypt + AES-256-GCM 加密，只保存在本机。</p>
+      <form id="unlock-form" class="vault-form">
+        <input class="field" id="unlock-password" type="password" placeholder="主密码" autocomplete="current-password">
+        <button class="btn primary" type="submit" id="unlock-submit">解锁</button>
+      </form>
+      <p class="footnote" id="unlock-hint">首次使用？输入的密码会创建新的加密密码库。</p>
+    </div>
+
+    <div id="vault-unlocked" class="is-hidden">
+      <div class="block-head">
+        <div>
+          <h2>全部条目</h2>
+          <p class="muted" id="vault-summary">—</p>
+        </div>
+        <div class="head-actions">
+          <button class="text-link" id="btn-vault-import">导入</button>
+          <button class="text-link" id="btn-vault-export">导出</button>
+          <button class="text-link" id="btn-vault-lock">锁定</button>
+          <button class="btn primary small" id="btn-vault-add">新建条目</button>
+        </div>
+      </div>
+      <div class="list" id="vault-list">
+        <div class="empty">还没有条目</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECURITY -->
+  <section class="view is-hidden" data-view="security">
+      <div class="block-head">
+      <div>
+        <h2>这台设备</h2>
+        <p class="muted">这些设置直接写入设备，断电后仍然保留。</p>
+      </div>
+      <span class="pill" id="pin-pill">未知</span>
+    </div>
+
+    <div class="setting">
+      <div class="setting-text">
+        <h3>设备 PIN</h3>
+        <p>用于解锁 Passkey、删除凭据和恢复出厂。首次设置时当前 PIN 留空。</p>
+      </div>
+      <form id="pin-form" class="setting-form wide">
+        <input class="field" id="pin-current" type="password" placeholder="当前 PIN" autocomplete="off">
+        <input class="field" id="pin-new" type="password" placeholder="新 PIN，至少 4 位" autocomplete="new-password">
+        <button class="btn primary small" type="submit" id="pin-submit">设置 / 修改</button>
+      </form>
+    </div>
+
+    <div class="setting">
+      <div class="setting-text">
+        <h3>触摸确认</h3>
+        <p>注册或登录时，需要按一下板子上的 BOOT 键。自动确认只建议在测试时使用。</p>
+      </div>
+      <div class="setting-control">
+        <div class="segmented" id="upmode-seg">
+          <button data-mode="button" class="is-active">按键</button>
+          <button data-mode="auto">自动</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="setting">
+      <div class="setting-text">
+        <h3>固件更新</h3>
+        <p>通过 USB CDC 写入 .pio/build/esp32-s3-n16r8/firmware.bin。</p>
+      </div>
+      <div class="setting-form">
+        <label class="file-pick">
+          <input type="file" id="ota-file" accept=".bin" hidden>
+          <span class="btn ghost small" id="ota-file-label">选择文件</span>
+        </label>
+        <button class="btn primary small" id="btn-ota">开始更新</button>
+      </div>
+    </div>
+    <div class="progress is-hidden" id="ota-progress"><div class="bar"></div></div>
+
+    <div class="setting setting-danger">
+      <div class="setting-text">
+        <h3>恢复出厂设置</h3>
+        <p>清除设备内全部 Passkey、PIN 和 largeBlob 数据，不可撤销。</p>
+      </div>
+      <form id="reset-form" class="setting-form">
+        <input class="field" id="reset-pin" type="password" placeholder="设备 PIN">
+        <button class="btn danger small" type="submit">清除设备</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- DEMO -->
+  <section class="view is-hidden" data-view="demo">
+    <div class="demo-head">
+      <h2>在浏览器里试一次。</h2>
+      <p class="muted">浏览器通过系统的 FIDO 服务与设备通信。选择 TechXPassKey，然后按下 BOOT。</p>
+      <div class="hero-links">
+        <button class="text-link" id="btn-wa-register">注册 Passkey <svg class="icon"><use href="#i-chevron"/></svg></button>
+        <button class="text-link" id="btn-wa-login">用 Passkey 登录 <svg class="icon"><use href="#i-chevron"/></svg></button>
+      </div>
+    </div>
+    <div class="log" id="demo-log"><span class="dim">等待操作…</span></div>
+    <p class="footnote" id="demo-state">未注册</p>
+  </section>
+
+  <!-- ABOUT -->
+  <section class="view is-hidden" data-view="about">
+    <div class="about-hero">
+      <h2>一块板子，<br>一把随身钥匙。</h2>
+      <p class="muted">ESP32-S3 + FIDO2/CTAP 2.1 + U2F，USB 复合设备（HID + CDC），支持 PIN、常驻凭据、凭据管理与 largeBlob。</p>
+    </div>
+    <div class="spec-list">
+      <div class="spec-line"><span>协议</span><strong>FIDO_2_0 · FIDO_2_1 · U2F_V2</strong></div>
+      <div class="spec-line"><span>PIN</span><strong>CTAP PIN 协议 1 & 2</strong></div>
+      <div class="spec-line"><span>扩展</span><strong>credMgmt · largeBlobs · alwaysUv · pinUvAuthToken</strong></div>
+      <div class="spec-line"><span>传输</span><strong>USB HID（CTAPHID）· USB CDC（管理）· BLE</strong></div>
+      <div class="spec-line"><span>AAGUID</span><strong class="mono">5445434858504153534b455930303031</strong></div>
+      <div class="spec-line"><span>密码库</span><strong>scrypt + AES-256-GCM，仅存本机</strong></div>
+    </div>
+    <p class="footnote">固件 projects/passkey · 管理端 apps/passkey-manager · 测试 tests/</p>
+  </section>
+
+  <footer class="foot">
+    <div class="foot-links">
+      <button data-view="overview">概览</button>
+      <button data-view="passkeys">Passkeys</button>
+      <button data-view="vault">密码库</button>
+      <button data-view="security">安全</button>
+      <button data-view="demo">演示</button>
+      <button data-view="about">关于</button>
+    </div>
+    <p>本地运行，数据不出电脑。Copyright © 2026 TechXPassKey. 保留所有权利。</p>
+  </footer>
+</main>
+
+<div id="modal-root"></div>
+<div id="toast-root" class="toasts"></div>
+<script src="/app.js"></script>
+</body>
+</html>

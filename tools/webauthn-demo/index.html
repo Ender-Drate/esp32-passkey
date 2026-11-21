@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 Passkey · WebAuthn 演示</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    background: radial-gradient(1200px 600px at 20% -10%, #1c3b5a 0%, #0b1220 55%, #070a11 100%);
+    color: #e6edf7;
+  }
+  .card {
+    width: min(680px, 92vw); padding: 34px 36px 30px;
+    background: rgba(17, 25, 40, .82); border: 1px solid rgba(120, 170, 255, .18);
+    border-radius: 20px; box-shadow: 0 24px 70px rgba(0,0,0,.55);
+    backdrop-filter: blur(14px);
+  }
+  .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+  .logo {
+    width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+    background: linear-gradient(135deg, #2f81f7, #24d3a5); font-size: 24px;
+    box-shadow: 0 8px 24px rgba(47,129,247,.35);
+  }
+  h1 { font-size: 21px; margin: 0; letter-spacing: .2px; }
+  .sub { color: #8fa3bf; font-size: 13px; margin: 2px 0 22px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; margin: 18px 0; }
+  button {
+    flex: 1 1 180px; padding: 15px 20px; border-radius: 12px; border: 1px solid transparent;
+    font-size: 15px; font-weight: 600; cursor: pointer; transition: transform .12s, filter .12s;
+    background: linear-gradient(135deg, #2f81f7, #1f6feb); color: #fff;
+  }
+  button.secondary { background: rgba(47,129,247,.10); border-color: rgba(100,160,255,.35); color: #cfe1ff; }
+  button:hover { transform: translateY(-1px); filter: brightness(1.08); }
+  button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .log {
+    margin-top: 18px; padding: 14px 16px; min-height: 96px; border-radius: 12px;
+    background: #0a0f18; border: 1px solid rgba(120,170,255,.12);
+    font: 12.5px/1.55 "Cascadia Mono", Consolas, monospace; color: #a8bdd8;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .log .ok { color: #4ade80; } .log .err { color: #f87171; } .log .dim { color: #64748b; }
+  .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px;
+    background: rgba(36,211,165,.12); color: #38e0b0; border: 1px solid rgba(36,211,165,.3); }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">
+    <div class="logo">🔑</div>
+    <div>
+      <h1>ESP32 Passkey</h1>
+      <div class="sub">物理安全密钥 · WebAuthn 演示 &nbsp;<span class="badge" id="state">未注册</span></div>
+    </div>
+  </div>
+  <p class="sub">点击下面的按钮，浏览器会要求选择安全密钥；选中 <b>ESP32 Passkey</b>，然后按一下板子上的 <b>BOOT</b> 键。</p>
+  <div class="row">
+    <button id="reg">注册 Passkey</button>
+    <button id="login" class="secondary" disabled>用 Passkey 登录</button>
+  </div>
+  <div class="log" id="out"><span class="dim">等待操作…</span></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const out = $('out');
+function log(s, cls) {
+  const t = new Date().toLocaleTimeString();
+  out.innerHTML += `<div class="${cls || ''}">[${t}] ${s.replace(/</g, '&lt;')}</div>`;
+  out.scrollTop = out.scrollHeight;
+}
+function b64u(buf) {
+  const b = new Uint8Array(buf);
+  let s = '';
+  for (const x of b) s += String.fromCharCode(x);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function unb64u(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(s + '='.repeat((4 - s.length % 4) % 4));
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+}
+async function api(path, body) {
+  const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(body || {})});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+async function refresh() {
+  const s = await (await fetch('/api/status')).json();
+  $('state').textContent = s.registered ? '已注册' : '未注册';
+  $('login').disabled = !s.registered;
+  if (s.registered) log('凭据: ' + s.credId, 'dim');
+}
+$('reg').onclick = async () => {
+  try {
+    log('获取注册参数…');
+    const opt = (await api('/api/register/options')).publicKey;
+    opt.challenge = unb64u(opt.challenge);
+    opt.user.id = unb64u(opt.user.id);
+    log('请在弹出的窗口选择 ESP32 Passkey，然后按 BOOT 键…');
+    const cred = await navigator.credentials.create({publicKey: opt});
+    const resp = cred.response;
+    const r = await api('/api/register/verify', {
+      id: cred.id, rawId: b64u(cred.rawId), user: 'demo@localhost',
+      response: {
+        clientDataJSON: b64u(resp.clientDataJSON),
+        attestationObject: b64u(resp.attestationObject),
+        transports: resp.getTransports ? resp.getTransports() : [],
+      },
+    });
+    log('注册成功 ✓  credentialId=' + r.credId, 'ok');
+    log('attestation=' + r.fmt + '  flags=0x' + r.flags.toString(16) + '  counter=' + r.signCount, 'dim');
+    await refresh();
+  } catch (e) {
+    log('注册失败: ' + e.message, 'err');
+  }
+};
+$('login').onclick = async () => {
+  try {
+    const opt = (await api('/api/login/options')).publicKey;
+    opt.challenge = unb64u(opt.challenge);
+    opt.allowCredentials = opt.allowCredentials.map(c => ({...c, id: unb64u(c.id)}));
+    log('请选择 ESP32 Passkey 并按 BOOT 键…');
+    const cred = await navigator.credentials.get({publicKey: opt});
+    const resp = cred.response;
+    const r = await api('/api/login/verify', {
+      id: cred.id, rawId: b64u(cred.rawId),
+      response: {
+        clientDataJSON: b64u(resp.clientDataJSON),
+        authenticatorData: b64u(resp.authenticatorData),
+        signature: b64u(resp.signature),
+        userHandle: resp.userHandle ? b64u(resp.userHandle) : null,
+      },
+    });
+    log('登录验证通过 ✓  counter=' + r.signCount + '  flags=0x' + r.flags.toString(16), 'ok');
+  } catch (e) {
+    log('登录失败: ' + e.message, 'err');
+  }
+};
+refresh().catch(e => log(e.message, 'err'));
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TechXPassKey</string>
+    <string name="subtitle">USB-C · FIDO2 · BLE</string>
+    <string name="scan_connect">扫描并连接</string>
+    <string name="disconnect">断开</string>
+    <string name="device_section">设备</string>
+    <string name="security_section">安全</string>
+    <string name="credentials_section">凭据</string>
+    <string name="log_section">日志</string>
+    <string name="pin_current_hint">当前 PIN（首次留空）</string>
+    <string name="pin_new_hint">新 PIN，至少 4 位</string>
+    <string name="pin_action">设置 / 修改 PIN</string>
+    <string name="refresh_credentials">刷新</string>
+    <string name="pin_needed_hint">删除凭据需要设备 PIN；若未设置 PIN，可直接删除。</string>
+    <string name="not_connected">未连接</string>
+    <string name="connecting">正在连接…</string>
+    <string name="connected">已连接</string>
+    <string name="scanning">正在扫描 TechXPassKey…</string>
+</resources>
