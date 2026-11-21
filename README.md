@@ -18,6 +18,7 @@
 ```
 firmware/          ESP32-S3 主固件（PlatformIO / Arduino）
 firmware-key/      第二块 ESP32 的 key 固件（UART 互锁）
+enclosure/         两块板的外壳（Blender MCP 生成，STL + .blend + 预览）
 manager/           本地管理器（Python + Web UI）
 android/           Android BLE 伴生 App（Java）
 docs/              使用说明与截图
@@ -25,6 +26,16 @@ scripts/           pkdev.py（管理协议）、flash_passkey.ps1、serial_captu
 tests/             CTAP2 / U2F / credMgmt / largeBlob / PIN 持久化 / BLE 测试
 tools/webauthn-demo/  独立 WebAuthn 演示服务器
 ```
+
+## 外壳
+
+`enclosure/` 里是主板 MAIN 和副板 KEY 的 3D 打印外壳，外形按面包板
+**54.1 × 81.6 mm**，总高 26 mm；USB-C 12×6 mm 开口，DC 头 Ø8 mm + 5.6 mm
+钥匙槽，M3 螺丝盖，内部有 25.6 mm 板轨。
+
+![外壳预览](enclosure/preview.png)
+
+STL、Blender 源文件和打印说明见 `enclosure/README.md`。
 
 ## 第二块板（物理互锁）
 
