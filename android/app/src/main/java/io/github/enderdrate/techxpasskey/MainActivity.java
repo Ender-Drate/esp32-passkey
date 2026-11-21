@@ -389,6 +389,7 @@ public class MainActivity extends AppCompatActivity {
             clearInfo();
             return;
         }
+        b.deviceHint.setVisibility(View.GONE);
         clearInfo();
         addInfoRow("固件", firmware(info.firmwareVersion));
         addInfoRow("AAGUID", hex(info.aaguid));
@@ -401,6 +402,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void clearInfo() {
         b.infoContainer.removeAllViews();
+        b.deviceHint.setVisibility(View.VISIBLE);
     }
 
     private void addInfoRow(String label, String value) {

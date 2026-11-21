@@ -32,3 +32,6 @@ desktop.ini
 # Local secrets
 *.keystore
 *.jks
+
+# Local release artifacts
+dist/

@@ -85,6 +85,15 @@
             android:layout_marginTop="6dp"
             android:orientation="vertical" />
 
+        <TextView
+            android:id="@+id/deviceHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="连接后显示固件、AAGUID 与剩余容量。"
+            android:textColor="@color/ink3"
+            android:textSize="13sp" />
+
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
