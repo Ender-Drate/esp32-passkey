@@ -22,10 +22,10 @@ HID（CTAPHID）+ CDC（管理协议 / OTA）。
 
 ```powershell
 # 编译
-pio run -d firmware
+.\scripts\pio.ps1 run -d .\projects\passkey
 
 # 通过 CH343 UART 口烧录（推荐，自动复位）
-pio run -d firmware -t upload --upload-port COM8
+.\scripts\pio.ps1 run -d .\projects\passkey -t upload --upload-port COM8
 
 # 只接了原生 USB 时：按住 BOOT → 点 RST → 松开，再
 .\scripts\flash_passkey.ps1
@@ -70,11 +70,32 @@ python scripts/pkdev.py logs
 ```powershell
 # Windows 的 FIDO 栈会独占 0xFFFD，测试构建把它映射到 0xFFF0
 $env:PLATFORMIO_BUILD_FLAGS='-DPK_BLE_ALIAS=1'
-pio run -d firmware -t upload --upload-port COM8
+.\scripts\pio.ps1 run -d .\projects\passkey -t upload --upload-port COM8
 python tests/ble_ctap_test.py     # PIN + makeCredential + getAssertion 全通过
 ```
 
 正式固件默认使用标准 `0xFFFD`；Android 等使用标准 GATT 的客户端可直接发现。
+
+## 第二块板（物理互锁）
+
+主板 GPIO16/17 与副板 GPIO41/42 两线 UART 相连，副板保存 32 字节 link key；
+主板只有在持续收到副板的 HMAC 证明时才允许注册/登录。
+
+```
+主板 GPIO16 (TX) ──→ 副板 GPIO42 (RX)
+主板 GPIO17 (RX) ←── 副板 GPIO41 (TX)
+GND ─────────────── GND
+```
+
+- 也支持直连接法（`16→41`、`17→42`）：固件每 6 秒自动交换 RX/TX，直到收到证明。
+- 上电自动配对：主板生成 key，发给空副板；副板回 `OK K` 后开始应答 nonce。
+- 运行时每 700 ms 一次 challenge；2.5 s 没有有效应答 → 红灯 + 拒绝
+  `makeCredential` / `getAssertion` / U2F（`0x27 OPERATION_DENIED`）。
+- **PIN 仍然存在主板**，由电脑端输入；副板只是额外的物理因子，不保存 PIN。
+- 恢复出厂（触摸确认）会清除凭据和 link key，之后可重新配对新副板。
+- 编译时加 `-DPK_INTERLOCK=0` 可关闭互锁（仅用于对比测试）。
+
+副板固件在 `../passkey-key`，接线、配对、清 key 见该目录 README。
 
 ## 已知限制
 

@@ -23,9 +23,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 BASE = Path(__file__).resolve().parent
-ROOT = BASE
-while not (ROOT / "scripts" / "pkdev.py").exists() and ROOT.parent != ROOT:
-    ROOT = ROOT.parent
+ROOT = BASE.parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import pkdev  # noqa: E402

@@ -20,6 +20,26 @@
 #define PK_BUTTON_PIN 0        // BOOT button = user presence
 #endif
 
+// --- Second-board interlock (UART) -----------------------------------------
+// Main board GPIO16 (TX) -> second board GPIO42 (RX)
+// Main board GPIO17 (RX) <- second board GPIO41 (TX)
+// GND must be common.  Set PK_INTERLOCK=0 to build without the second board.
+#ifndef PK_INTERLOCK
+#define PK_INTERLOCK 1
+#endif
+#ifndef PK_IL_RX_PIN
+#define PK_IL_RX_PIN 17
+#endif
+#ifndef PK_IL_TX_PIN
+#define PK_IL_TX_PIN 16
+#endif
+#ifndef PK_IL_BAUD
+#define PK_IL_BAUD 115200
+#endif
+#ifndef PK_IL_PROOF_TIMEOUT_MS
+#define PK_IL_PROOF_TIMEOUT_MS 2500
+#endif
+
 // --- FIDO -------------------------------------------------------------------
 #define PK_AAGUID { 0x54, 0x45, 0x43, 0x48, 0x58, 0x50, 0x41, 0x53, \
                     0x53, 0x4B, 0x45, 0x59, 0x30, 0x30, 0x30, 0x31 }

@@ -6,6 +6,7 @@
 #include "pk_ble.h"
 #include "pk_ctap2.h"
 #include "pk_ctaphid.h"
+#include "pk_interlock.h"
 #include "pk_led.h"
 #include "pk_mgmt.h"
 #include "pk_store.h"
@@ -32,6 +33,7 @@ void setup() {
         Serial.println("[boot] usb init failed");
     }
     mgmt::begin();
+    interlock::begin();
     ctaphid::init();
     ble::begin(PK_PRODUCT_NAME);
 

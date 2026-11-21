@@ -8,6 +8,7 @@
 #include "pk_crypto.h"
 #include "pk_ctaphid.h"
 #include "pk_ble.h"
+#include "pk_interlock.h"
 #include "pk_led.h"
 #include "pk_mgmt.h"
 #include "pk_store.h"
@@ -53,7 +54,11 @@ static void save_settings() { store::save_settings(); }
 // --- user presence ----------------------------------------------------------
 static bool button_down() { return digitalRead(PK_BUTTON_PIN) == LOW; }
 
-static bool wait_touch(uint32_t timeout_ms) {
+static bool wait_touch_impl(uint32_t timeout_ms, bool require_interlock) {
+    if (require_interlock && !interlock::ready()) {
+        led::locked(true);
+        return false;
+    }
     if (store::settings().upMode == 1) {
         led::success();
         return true;
@@ -62,6 +67,10 @@ static bool wait_touch(uint32_t timeout_ms) {
     uint32_t lowSince = 0;
     led::wait_touch();
     while (millis() - start < timeout_ms) {
+        if (require_interlock && !interlock::ready()) {
+            led::locked(true);
+            return false;
+        }
         if (ctaphid::cancelled()) {
             led::error();
             return false;
@@ -83,6 +92,16 @@ static bool wait_touch(uint32_t timeout_ms) {
     }
     led::error();
     return false;
+}
+
+static bool wait_touch(uint32_t timeout_ms) {
+    return wait_touch_impl(timeout_ms, true);
+}
+
+// Factory reset is a destructive recovery path: it is allowed without the
+// second board, but it wipes credentials and the interlock key.
+static bool wait_touch_raw(uint32_t timeout_ms) {
+    return wait_touch_impl(timeout_ms, false);
 }
 
 void wink() { led::wink(); }
@@ -285,6 +304,10 @@ static size_t do_get_info(cbor::Writer& w) {
 // authenticatorMakeCredential
 // ---------------------------------------------------------------------------
 static uint8_t do_make_credential(const Value& req, cbor::Writer& w) {
+    if (!interlock::ready()) {
+        led::locked(true);
+        return CTAP2_ERR_OPERATION_DENIED;
+    }
     const Value* cdh = req.get(1);
     if (!cdh || cdh->type != cbor::T_BYTES || cdh->len != 32) return CTAP2_ERR_MISSING_PARAMETER;
 
@@ -361,6 +384,7 @@ static uint8_t do_make_credential(const Value& req, cbor::Writer& w) {
     if ((credProtect == 2 || credProtect == 3) && !uv) return CTAP2_ERR_PIN_REQUIRED;
 
     if (up && !wait_touch(PK_DEFAULT_UP_TIMEOUT_MS)) {
+        if (!interlock::ready()) return CTAP2_ERR_OPERATION_DENIED;
         return ctaphid::cancelled() ? CTAP2_ERR_KEEPALIVE_CANCEL : CTAP2_ERR_USER_ACTION_TIMEOUT;
     }
 
@@ -530,6 +554,10 @@ static uint8_t emit_assertion(int idx, cbor::Writer& w, bool first) {
 }
 
 static uint8_t do_get_assertion(const Value& req, cbor::Writer& w) {
+    if (!interlock::ready()) {
+        led::locked(true);
+        return CTAP2_ERR_OPERATION_DENIED;
+    }
     const Value* rpIdV = req.get(1);
     if (!rpIdV || rpIdV->type != cbor::T_TEXT || rpIdV->len == 0 || rpIdV->len > PK_MAX_RP_ID_LEN)
         return CTAP2_ERR_MISSING_PARAMETER;
@@ -607,6 +635,7 @@ static uint8_t do_get_assertion(const Value& req, cbor::Writer& w) {
     }
 
     if (up && !wait_touch(PK_DEFAULT_UP_TIMEOUT_MS)) {
+        if (!interlock::ready()) return CTAP2_ERR_OPERATION_DENIED;
         return ctaphid::cancelled() ? CTAP2_ERR_KEEPALIVE_CANCEL : CTAP2_ERR_USER_ACTION_TIMEOUT;
     }
 
@@ -1132,13 +1161,14 @@ static uint8_t do_config(const Value& req, cbor::Writer& w) {
 // ---------------------------------------------------------------------------
 void factory_reset() {
     store::factory_reset();
+    interlock::forget();
     memset(&g_pin, 0, sizeof(g_pin));
     g_candCount = 0;
     g_gaActive = false;
 }
 
 static uint8_t do_reset() {
-    if (!wait_touch(10000)) {
+    if (!wait_touch_raw(10000)) {
         return ctaphid::cancelled() ? CTAP2_ERR_KEEPALIVE_CANCEL : CTAP2_ERR_OPERATION_DENIED;
     }
     factory_reset();
@@ -1242,7 +1272,13 @@ size_t handle(uint8_t cmd, const uint8_t* req, size_t len, uint8_t* resp, size_t
 
 void poll() {}
 
-bool user_presence(uint32_t timeout_ms) { return wait_touch(timeout_ms); }
+bool user_presence(uint32_t timeout_ms) {
+    if (!interlock::ready()) {
+        led::locked(true);
+        return false;
+    }
+    return wait_touch(timeout_ms);
+}
 
 bool check_pin_string(const char* pin, size_t len) {
     if (!pin_is_set()) return true;

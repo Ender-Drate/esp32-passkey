@@ -5,6 +5,8 @@
 
 - **固件**：CTAP 2.1 / CTAP1(U2F) / PIN 协议 1&2 / 常驻凭据 / credentialManagement /
   largeBlobs / OTA，USB HID + BLE 双传输。
+- **第二块板**：`firmware-key/` 保存 link key，通过 GPIO16/17 ↔ 41/42 两线 UART
+  向主板证明"我在场"。没有它，主板红灯并拒绝注册/登录；PIN 仍然保存在主板。
 - **管理器**：Python 后端 + apple.com.cn 风格的本地 Web UI；加密密码库、
   TOTP、导入导出、Passkey 列表与删除、PIN、OTA、WebAuthn 演示。
 - **Android**：BLE 伴生 App，扫描连接、设备信息、PIN 设置/修改、凭据列表与删除。
@@ -14,7 +16,8 @@
 ## 仓库结构
 
 ```
-firmware/          ESP32-S3 固件（PlatformIO / Arduino）
+firmware/          ESP32-S3 主固件（PlatformIO / Arduino）
+firmware-key/      第二块 ESP32 的 key 固件（UART 互锁）
 manager/           本地管理器（Python + Web UI）
 android/           Android BLE 伴生 App（Java）
 docs/              使用说明与截图
@@ -22,6 +25,22 @@ scripts/           pkdev.py（管理协议）、flash_passkey.ps1、serial_captu
 tests/             CTAP2 / U2F / credMgmt / largeBlob / PIN 持久化 / BLE 测试
 tools/webauthn-demo/  独立 WebAuthn 演示服务器
 ```
+
+## 第二块板（物理互锁）
+
+主板 GPIO16/17 与副板 GPIO41/42 两线 UART；副板保存 32 字节 link key，主板
+只有持续收到 HMAC 证明时才允许注册/登录。
+
+```
+主板 GPIO16 (TX) ──→ 副板 GPIO42 (RX)     推荐
+主板 GPIO17 (RX) ←── 副板 GPIO41 (TX)
+GND ─────────────── GND
+```
+
+直连接法（`16→41`、`17→42`）也可用：主板每 6 秒自动交换 RX/TX 直到配对。
+上电自动配对；2.5 秒无有效证明 → 红灯 + `0x27 OPERATION_DENIED`。
+**PIN 仍在主板**、电脑端输入；副板只是额外的物理因子。副板固件与接线细节见
+`firmware-key/README.md`。
 
 ## 快速开始
 

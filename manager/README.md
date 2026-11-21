@@ -9,9 +9,9 @@
 
 ```powershell
 # 在仓库根目录（D:\dsh_Workspaces\ESP32）
-python manager/server.py
+.\apps\passkey-manager\start.bat
 # 或
-.\.venv\Scripts\python.exe manager\server.py
+.\.venv\Scripts\python.exe .\apps\passkey-manager\server.py
 ```
 
 服务监听 `http://localhost:8787`，启动后自动打开浏览器。

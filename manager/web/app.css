@@ -55,6 +55,7 @@ h1, h2, h3, p { margin: 0; }
 .dim { color: var(--text-3); }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: #c7c7cc; flex: none; }
 .dot.is-live { background: #30d158; }
+.dot.is-lock { background: #ff453a; }
 .dot.is-off { background: #c7c7cc; }
 
 /* ── Global nav (apple.com.cn: 48px, blur, hairline) ───────────────────── */

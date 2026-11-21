@@ -12,6 +12,7 @@
 #include "pk_config.h"
 #include "pk_crypto.h"
 #include "pk_ctap2.h"
+#include "pk_interlock.h"
 #include "pk_store.h"
 #include "pk_u2f.h"
 #include "pk_usb.h"
@@ -188,11 +189,14 @@ static void cmd_info() {
     int n = snprintf(buf, sizeof(buf),
                      "{\"name\":\"%s\",\"version\":\"%s\",\"aaguid\":\"54 45 43 48 58 50 41 53 53 4b 45 59 30 30 30 31\","
                      "\"pin\":%s,\"retries\":%u,\"creds\":%d,\"maxCreds\":%d,\"upMode\":%u,"
+                     "\"il\":%s,\"ilState\":\"%s\","
                      "\"fsUsed\":%u,\"fsTotal\":%u,\"epoch\":%llu,\"ota\":%s,"
                      "\"boot\":%u,\"reset\":%d}",
                      PK_PRODUCT_NAME, PK_VERSION, ctap::pin_is_set() ? "true" : "false",
                      (unsigned)ctap::pin_retries(), store::credential_count(), PK_MAX_CREDENTIALS,
-                     (unsigned)store::settings().upMode, (unsigned)LittleFS.usedBytes(),
+                     (unsigned)store::settings().upMode,
+                     interlock::ready() ? "true" : "false", interlock::state(),
+                     (unsigned)LittleFS.usedBytes(),
                      (unsigned)LittleFS.totalBytes(), (unsigned long long)store::now_epoch(),
                      g_otaActive ? "true" : "false",
                      (unsigned)store::settings().bootCount, (int)esp_reset_reason());

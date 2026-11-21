@@ -1,8 +1,8 @@
 @echo off
 rem TechXPassKey Manager launcher
 cd /d "%~dp0"
-if exist "..\.venv\Scripts\python.exe" (
-  "..\.venv\Scripts\python.exe" server.py
+if exist "..\..\.venv\Scripts\python.exe" (
+  "..\..\.venv\Scripts\python.exe" server.py
 ) else (
   python server.py
 )

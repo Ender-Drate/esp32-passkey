@@ -11,4 +11,8 @@ void success();
 void error();
 void wink();
 void poll();
+
+// Persistent "second board missing" state: stays red, overrides idle/error.
+void locked(bool on);
+bool locked();
 }  // namespace led

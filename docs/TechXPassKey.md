@@ -10,10 +10,10 @@ WebAuthn 演示）。
 
 ```powershell
 # 1) 打开管理器（会自动打开 http://localhost:8787）
-python manager/server.py
+.\apps\passkey-manager\start.bat
 
 # 2) 固件（已烧录；改动后重新烧）
-pio run -d firmware -t upload --upload-port COM8
+.\scripts\pio.ps1 run -d .\projects\passkey -t upload --upload-port COM8
 ```
 
 - 设备通过 **CH343 UART（COM8）** 烧录，通过 **原生 USB（CDC + HID）** 工作。
@@ -40,8 +40,8 @@ pio run -d firmware -t upload --upload-port COM8
 ## 目录
 
 ```
-firmware/            固件（Arduino + TinyUSB + Bluedroid）
-manager/        管理器（Python 后端 + Apple 风 Web UI）
+projects/passkey/            固件（Arduino + TinyUSB + Bluedroid）
+apps/passkey-manager/        管理器（Python 后端 + Apple 风 Web UI）
   server.py                  HTTP API / 静态文件 / WebAuthn 校验
   core/vault.py              scrypt + AES-256-GCM 密码库
   core/totp.py               TOTP/HOTP
@@ -92,6 +92,28 @@ python tests/ble_ctap_test.py    # BLE（需 -DPK_BLE_ALIAS=1 构建）
   `127.0.0.1`；导出为明文，需自行保管。
 - 触摸确认：BOOT 键；管理器可切「自动确认」但仅建议测试时使用。
 
+## 第二块板（物理钥匙）
+
+主板 GPIO16/17 与副板 GPIO41/42 两线 UART 相连，副板保存 32 字节 link key。
+主板只有在持续收到副板的 HMAC 证明时才允许注册/登录；否则红灯并返回
+`CTAP2_ERR_OPERATION_DENIED`。
+
+```
+主板 GPIO16 (TX) ──→ 副板 GPIO42 (RX)     推荐交叉
+主板 GPIO17 (RX) ←── 副板 GPIO41 (TX)
+GND ─────────────── GND
+```
+
+直连接法（`16→41`、`17→42`）也能用：主板每 6 秒自动交换 RX/TX，直到配对成功。
+
+- 上电自动配对：主板生成 key → 空副板保存 → 之后每 700 ms 一次 nonce/HMAC 心跳。
+- 2.5 秒没有有效证明：红灯，`makeCredential` / `getAssertion` / U2F 全部拒绝。
+- **PIN 仍保存在主板**，电脑端输入；副板只是额外的物理因子，不存 PIN。
+- 副板丢失：主板恢复出厂（触摸）会清凭据和 link key，再配新副板；副板上电时
+  按住 BOOT 3 秒可清 key。
+
+副板固件：`firmware-key/`；管理器「安全 → 第二块板」会显示连接状态。
+
 ## 已知限制
 
 - 未实现 `hmac-secret` / `credBlob` / `largeBlobKey`（未广告）。
@@ -100,20 +122,3 @@ python tests/ble_ctap_test.py    # BLE（需 -DPK_BLE_ALIAS=1 构建）
   工具看不到它；BLE 自动化测试用 `-DPK_BLE_ALIAS=1` 映射到 `0xFFF0`。
 - 首次烧录若只接原生 USB：按住 BOOT → 点 RST → 松开，再
   `.\scripts\flash_passkey.ps1`。
-
-## Android App
-
-`android/` 是 BLE 伴生 App（Java，Android 8+）：
-
-- 扫描连接 `TechXPassKey`（FIDO GATT `0xFFFD`）
-- 设备信息、PIN 设置/修改、凭据列表与删除、协议日志
-- PIN 协议 2：ECDH P-256 + HKDF-SHA-256 + AES-256-CBC + HMAC-SHA-256
-
-构建：
-
-```bash
-cd android
-./gradlew assembleDebug
-```
-
-APK 也会随 GitHub Release 提供。

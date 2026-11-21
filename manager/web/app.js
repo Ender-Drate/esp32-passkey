@@ -110,13 +110,14 @@
 
   function renderDevice() {
     const d = state.device;
-    $("#device-dot").className = "dot " + (d ? "is-live" : "is-off");
+    const ilOk = d ? d.il !== false : false;
+    $("#device-dot").className = "dot " + (d ? (ilOk ? "is-live" : "is-lock") : "is-off");
     $("#device-name").textContent = d ? "已连接" : "未连接";
     $("#device-port").textContent = d ? d.port : "";
     $("#device-name").title = d ? `${d.port} · ${d.pin ? "PIN 已设置" : "未设 PIN"}` : "";
     const badge = $("#hero-badge");
     if (d) {
-      badge.innerHTML = `<span class="dot is-live"></span><span>已连接 · ${esc(d.port)}</span>`;
+      badge.innerHTML = `<span class="dot ${ilOk ? "is-live" : "is-lock"}"></span><span>已连接 · ${esc(d.port)}${ilOk ? "" : " · 副板未连接"}</span>`;
     } else {
       badge.innerHTML = `<span class="dot"></span><span>设备未连接</span>`;
     }
@@ -426,6 +427,19 @@
   // ---------------------------------------------------------------- security
   function renderSecurity() {
     const d = state.device;
+    const ilPill = $("#il-pill");
+    if (ilPill) {
+      if (!d) {
+        ilPill.className = "pill";
+        ilPill.textContent = "—";
+      } else if (d.il === false) {
+        ilPill.className = "pill bad";
+        ilPill.textContent = "未连接";
+      } else {
+        ilPill.className = "pill ok";
+        ilPill.textContent = "已连接";
+      }
+    }
     const pill = $("#pin-pill");
     if (!d) { pill.className = "pill"; pill.textContent = "未连接"; return; }
     pill.className = "pill " + (d.pin ? "ok" : "warn");
