@@ -463,6 +463,7 @@
     if (replaceWatch) clearInterval(replaceWatch);
     replaceWatch = setInterval(async () => {
       await refresh();
+      renderSecurity();
       if (!state.device || state.device.ilReplace !== true) {
         clearInterval(replaceWatch);
         replaceWatch = null;
