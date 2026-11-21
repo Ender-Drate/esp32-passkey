@@ -695,6 +695,12 @@ static uint8_t do_client_pin(const Value& req, cbor::Writer& w) {
     const Value* subV = req.get(2);
     if (!subV || !subV->is_int()) return CTAP1_ERR_INVALID_PARAMETER;
     uint8_t sub = (uint8_t)subV->i;
+    // Setting/changing the PIN is a security operation; require the second
+    // board just like signing and credential management.
+    if ((sub == PIN_SET_PIN || sub == PIN_CHANGE_PIN) && !interlock::ready()) {
+        led::locked(true);
+        return CTAP2_ERR_OPERATION_DENIED;
+    }
     uint8_t proto = 1;
     const Value* protoV = req.get(1);
     if (protoV && protoV->is_int()) proto = (uint8_t)protoV->i;

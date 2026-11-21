@@ -454,6 +454,19 @@
         replaceBtn.textContent = d && d.ilReplace === true ? "取消更换" : "更换副板";
         replaceBtn.disabled = !d;
       }
+      const encPill = $("#enc-pill");
+      if (encPill) {
+        if (!d) {
+          encPill.className = "pill";
+          encPill.textContent = "—";
+        } else if (d.enc === false) {
+          encPill.className = "pill bad";
+          encPill.textContent = "明文（迁移中）";
+        } else {
+          encPill.className = "pill ok";
+          encPill.textContent = "已加密";
+        }
+      }
     }
     const pill = $("#pin-pill");
     if (!d) { pill.className = "pill"; pill.textContent = "未连接"; return; }

@@ -298,6 +298,7 @@ static void dispatch(uint8_t cmd, const uint8_t* p, size_t len) {
             break;
         }
         case CMD_SET_UP_MODE:
+            if (!interlock::ready()) { send_status(cmd, ST_LOCKED); break; }
             if (len != 1 || p[0] > 1) { send_status(cmd, ST_ERROR); break; }
             store::settings().upMode = p[0];
             store::save_settings();
@@ -326,6 +327,7 @@ static void dispatch(uint8_t cmd, const uint8_t* p, size_t len) {
             break;
         }
         case CMD_OTA_BEGIN:
+            if (!interlock::ready()) { send_status(cmd, ST_LOCKED); break; }
             if (len != 8) { send_status(cmd, ST_ERROR); break; }
             g_otaSize = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
             g_otaCrcExpected = (uint32_t)p[4] | ((uint32_t)p[5] << 8) | ((uint32_t)p[6] << 16) |
@@ -341,6 +343,7 @@ static void dispatch(uint8_t cmd, const uint8_t* p, size_t len) {
             send_status(cmd, ST_OK);
             break;
         case CMD_OTA_DATA: {
+            if (!interlock::ready()) { send_status(cmd, ST_LOCKED); break; }
             if (!g_otaActive || len < 5) { send_status(cmd, ST_ERROR); break; }
             uint32_t off = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
                            ((uint32_t)p[3] << 24);
@@ -357,6 +360,7 @@ static void dispatch(uint8_t cmd, const uint8_t* p, size_t len) {
             break;
         }
         case CMD_OTA_END: {
+            if (!interlock::ready()) { send_status(cmd, ST_LOCKED); break; }
             if (!g_otaActive) { send_status(cmd, ST_ERROR); break; }
             uint32_t got = ~g_otaCrc;
             bool crcOk = (g_otaCrcExpected == 0) || (got == g_otaCrcExpected);
@@ -385,6 +389,7 @@ static void dispatch(uint8_t cmd, const uint8_t* p, size_t len) {
             ESP.restart();
             break;
         case CMD_BOOTLOADER:
+            if (!interlock::ready()) { send_status(cmd, ST_LOCKED); break; }
             send_status(cmd, ST_OK);
             delay(100);
             usb_persist_restart(RESTART_BOOTLOADER);

@@ -546,7 +546,13 @@ static void load_blob_meta() {
     g_blobSize = 0;
     File f = LittleFS.open(BLOB_FILE, "r");
     if (f) {
-        g_blobSize = f.size();
+        uint8_t hdr[12];
+        if (f.read(hdr, 12) == 12 && memcmp(hdr, "PKB1", 4) == 0) {
+            g_blobSize = (size_t)hdr[8] | ((size_t)hdr[9] << 8) |
+                         ((size_t)hdr[10] << 16) | ((size_t)hdr[11] << 24);
+        } else {
+            g_blobSize = f.size();  // legacy plaintext blob
+        }
         f.close();
     }
     g_blobLoaded = true;
@@ -558,23 +564,57 @@ size_t large_blob_size() {
 }
 
 bool large_blob_read(uint8_t* out, size_t offset, size_t len) {
+    if (!g_unlocked) return false;
     load_blob_meta();
     if (offset > g_blobSize) return false;
     size_t n = len;
     if (offset + n > g_blobSize) n = g_blobSize - offset;
+    if (n == 0) return true;
+
     File f = LittleFS.open(BLOB_FILE, "r");
-    if (!f) return n == 0;
-    f.seek(offset);
-    size_t got = f.read(out, n);
+    if (!f) return false;
+    uint8_t hdr[12];
+    if (f.read(hdr, 12) != 12) {
+        f.close();
+        return false;
+    }
+    if (memcmp(hdr, "PKB1", 4) != 0) {
+        f.seek(offset);
+        size_t got = f.read(out, n);
+        f.close();
+        return got == n;
+    }
+    size_t total = f.size() - 12;
+    if (total < 12 + 16 || total > SCRATCH_CAP) {
+        f.close();
+        return false;
+    }
+    if (f.read(g_cipher, total) != total) {
+        f.close();
+        return false;
+    }
     f.close();
-    return got == n;
+    if (!aes256_gcm_decrypt(g_dek, g_cipher, 12, g_cipher + 12, total - 12, g_plain)) {
+        return false;
+    }
+    if (offset + n > g_blobSize) n = g_blobSize - offset;
+    memcpy(out, g_plain + offset, n);
+    return true;
 }
 
 bool large_blob_write(const uint8_t* data, size_t len) {
-    if (len > PK_MAX_LARGE_BLOB) return false;
+    if (!g_unlocked || len > PK_MAX_LARGE_BLOB) return false;
+    uint8_t iv[12];
+    if (!random_bytes(iv, sizeof(iv))) return false;
+    memcpy(g_cipher, iv, 12);
+    if (!aes256_gcm_encrypt(g_dek, iv, 12, data, len, g_cipher + 12)) return false;
+    uint8_t hdr[12] = {'P', 'K', 'B', '1', 1, 0, 0, 0,
+                       (uint8_t)(len & 0xFF), (uint8_t)((len >> 8) & 0xFF),
+                       (uint8_t)((len >> 16) & 0xFF), (uint8_t)((len >> 24) & 0xFF)};
     File f = LittleFS.open(BLOB_FILE, "w");
     if (!f) return false;
-    bool ok = f.write(data, len) == len;
+    bool ok = f.write(hdr, sizeof(hdr)) == sizeof(hdr);
+    if (ok) ok = f.write(g_cipher, 12 + len + 16) == (12 + len + 16);
     f.close();
     if (ok) { g_blobSize = len; g_blobLoaded = true; }
     return ok;

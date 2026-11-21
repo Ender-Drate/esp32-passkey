@@ -45,7 +45,7 @@ HID（CTAPHID）+ CDC（管理协议 / OTA）。
 - `nvs`：主密钥、PIN 哈希（AES-GCM 加密）、设置、启动计数，以及**被 KEK 包裹的
   DEK**（`dek`）。主板不保存 KEK。
 - LittleFS `spiffs` 分区：`/creds.bin` 是 **PKC2 密文**（AES-256-GCM，密钥为 DEK），
-  不是明文私钥；`/blob.bin` largeBlob。
+  不是明文私钥；`/blob.bin` 也是 **PKB1 密文**（同一个 DEK）。
 - 开机流程：副板证明 link key → 副板用 link key 加密把 **KEK** 发给主板 → 主板用
   KEK 解开 NVS 里的 DEK → 用 DEK 把 `/creds.bin` 解密到 RAM。没有副板时主板上只有
   密文和被包裹的 DEK，无法得到私钥。

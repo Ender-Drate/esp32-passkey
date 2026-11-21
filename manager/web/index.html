@@ -193,6 +193,16 @@
 
     <div class="setting">
       <div class="setting-text">
+        <h3>凭据存储</h3>
+        <p>凭据库用随机 DEK 做 AES-256-GCM；DEK 被副板 KEK 包裹。主板 flash 里只有密文，没有副板解不开。</p>
+      </div>
+      <div class="setting-control">
+        <span class="pill" id="enc-pill">—</span>
+      </div>
+    </div>
+
+    <div class="setting">
+      <div class="setting-text">
         <h3>设备 PIN</h3>
         <p>用于解锁 Passkey、删除凭据和恢复出厂。首次设置时当前 PIN 留空。</p>
       </div>
