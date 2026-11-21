@@ -157,7 +157,11 @@
       renderStats();
     } catch (e) {
       if (!silent) toast(e.message, "err");
-      renderPasskeys([]);
+      state.passkeys = [];
+      const target = state.view === "overview" ? $("#overview-passkeys") : $("#passkey-list");
+      if (target) {
+        target.innerHTML = `<div class="empty"><strong>无法读取 Passkeys</strong>${esc(e.message)}</div>`;
+      }
     }
   }
 

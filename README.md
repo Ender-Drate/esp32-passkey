@@ -5,8 +5,9 @@
 
 - **固件**：CTAP 2.1 / CTAP1(U2F) / PIN 协议 1&2 / 常驻凭据 / credentialManagement /
   largeBlobs / OTA，USB HID + BLE 双传输。
-- **第二块板**：`firmware-key/` 保存 link key，通过 GPIO16/17 ↔ 41/42 两线 UART
-  向主板证明"我在场"。没有它，主板红灯并拒绝注册/登录；PIN 仍然保存在主板。
+- **第二块板**：`firmware-key/` 保存 link key 和 **KEK**；主板只保存
+  `AES-GCM(KEK, DEK)` 和 DEK 加密的凭据库，开机挑战通过后副板才把 KEK 交给主板。
+  没有副板时主板 flash 里只有密文；PIN 仍在主板，电脑端输入。
 - **管理器**：Python 后端 + apple.com.cn 风格的本地 Web UI；加密密码库、
   TOTP、导入导出、Passkey 列表与删除、PIN、OTA、WebAuthn 演示。
 - **Android**：BLE 伴生 App，扫描连接、设备信息、PIN 设置/修改、凭据列表与删除。

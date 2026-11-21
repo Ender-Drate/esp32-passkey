@@ -108,7 +108,7 @@ def require_pin_for_delete(pin: str, item_id_b64: str):
     try:
         d.delete_credential(raw, pin or "")
     except pkdev.PasskeyError as e:
-        raise ApiError(str(e), 401)
+        raise ApiError(str(e), 403 if "副板" in str(e) else 401)
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +202,10 @@ def api_passkeys(body, m):
     global DEVICE
     with DEVICE_LOCK:
         d = device()
-        return {"items": d.list_credentials(), "info": d.info()}
+        try:
+            return {"items": d.list_credentials(), "info": d.info()}
+        except pkdev.PasskeyError as e:
+            raise ApiError(str(e), 403)
 
 
 @route("POST", r"/api/device/passkeys/delete")

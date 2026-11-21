@@ -37,6 +37,8 @@ CMD_OTA_END = 0x22
 CMD_REBOOT = 0x30
 CMD_BOOTLOADER = 0x31
 CMD_FACTORY_RESET = 0x32
+CMD_REPLACE_KEY = 0x33
+CMD_REPLACE_CANCEL = 0x34
 CMD_LIST_CREDS = 0x40
 CMD_DELETE_CRED = 0x41
 CMD_DELETE_ALL = 0x42
@@ -48,6 +50,7 @@ ST_OK = 0
 ST_ERROR = 1
 ST_BAD_FRAME = 2
 ST_AUTH = 3
+ST_LOCKED = 6
 ST_BUSY = 4
 ST_NOTSUP = 5
 
@@ -180,6 +183,8 @@ class Device:
 
     def list_credentials(self) -> list[dict]:
         st, payload = self.xfer(CMD_LIST_CREDS, timeout=10)
+        if st == ST_LOCKED:
+            raise PasskeyError("副板未连接，无法读取 Passkeys")
         if st != ST_OK:
             raise PasskeyError(f"list status {st}")
         return json.loads(payload.decode("utf-8"))
@@ -187,6 +192,8 @@ class Device:
     def delete_credential(self, cred_id: bytes, pin: str = ""):
         p = pin.encode("utf-8")
         st, _ = self.xfer(CMD_DELETE_CRED, bytes([len(p)]) + p + cred_id)
+        if st == ST_LOCKED:
+            raise PasskeyError("副板未连接，无法删除 Passkeys")
         if st == ST_AUTH:
             raise PasskeyError("wrong PIN")
         if st != ST_OK:
@@ -195,6 +202,8 @@ class Device:
     def delete_all(self, pin: str = ""):
         p = pin.encode("utf-8")
         st, _ = self.xfer(CMD_DELETE_ALL, bytes([len(p)]) + p)
+        if st == ST_LOCKED:
+            raise PasskeyError("副板未连接，无法删除 Passkeys")
         if st == ST_AUTH:
             raise PasskeyError("wrong PIN")
         if st != ST_OK:
@@ -207,6 +216,14 @@ class Device:
             raise PasskeyError("wrong PIN")
         if st != ST_OK:
             raise PasskeyError("factory reset failed")
+
+    def replace_keyboard(self, cancel: bool = False):
+        cmd = CMD_REPLACE_CANCEL if cancel else CMD_REPLACE_KEY
+        st, _ = self.xfer(cmd)
+        if st == ST_AUTH:
+            raise PasskeyError("请先接好并验证旧副板")
+        if st != ST_OK:
+            raise PasskeyError("replace key board failed")
 
     def reboot(self):
         try:
@@ -284,7 +301,8 @@ def find_device(ports=None, timeout: float = 3.0) -> Device:
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print("usage: pkdev.py info|creds|logs|up-mode <auto|button>|"
-              "set-time|ota <firmware.bin>|delete <b64id> [pin]|reset [pin]|bootloader")
+              "set-time|ota <firmware.bin>|delete <b64id> [pin]|reset [pin]|bootloader|"
+              "replace-key|cancel-replace")
         return 0
     cmd = argv[0]
     if cmd == "ports":
@@ -328,6 +346,12 @@ def main(argv):
         elif cmd == "reset":
             dev.factory_reset(argv[1] if len(argv) > 1 else "")
             print("factory reset done")
+        elif cmd == "replace-key":
+            dev.replace_keyboard()
+            print("replace mode started")
+        elif cmd == "cancel-replace":
+            dev.replace_keyboard(cancel=True)
+            print("replace cancelled")
         elif cmd == "bootloader":
             dev.bootloader()
             print("rebooting to ROM bootloader")

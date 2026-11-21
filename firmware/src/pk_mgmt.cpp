@@ -53,6 +53,7 @@ enum : uint8_t {
     ST_AUTH = 3,
     ST_BUSY = 4,
     ST_NOTSUP = 5,
+    ST_LOCKED = 6,
 };
 
 static const uint8_t SOF1 = 0xA5;
@@ -192,6 +193,9 @@ static void cmd_info() {
                      "{\"name\":\"%s\",\"version\":\"%s\",\"aaguid\":\"54 45 43 48 58 50 41 53 53 4b 45 59 30 30 30 31\","
                      "\"pin\":%s,\"retries\":%u,\"creds\":%d,\"maxCreds\":%d,\"upMode\":%u,"
                      "\"il\":%s,\"ilState\":\"%s\",\"ilPaired\":%s,\"ilReplace\":%s,"
+                     "\"ilRx\":%u,\"ilLines\":%u,\"ilLast\":\"%s\",\"ilDbg\":\"%s\","
+                     "\"stErr\":\"%s\","
+                     "\"enc\":%s,"
                      "\"fsUsed\":%u,\"fsTotal\":%u,\"epoch\":%llu,\"ota\":%s,"
                      "\"boot\":%u,\"reset\":%d}",
                      PK_PRODUCT_NAME, PK_VERSION, ctap::pin_is_set() ? "true" : "false",
@@ -200,6 +204,10 @@ static void cmd_info() {
                      interlock::ready() ? "true" : "false", interlock::state(),
                      interlock::paired() ? "true" : "false",
                      interlock::replaceMode() ? "true" : "false",
+                     (unsigned)interlock::rxBytes(), (unsigned)interlock::rxLines(),
+                     interlock::lastLine(), interlock::debugText(),
+                     store::lastError(),
+                     store::encrypted_at_rest() ? "true" : "false",
                      (unsigned)LittleFS.usedBytes(),
                      (unsigned)LittleFS.totalBytes(), (unsigned long long)store::now_epoch(),
                      g_otaActive ? "true" : "false",
@@ -261,6 +269,7 @@ static void dispatch(uint8_t cmd, const uint8_t* p, size_t len) {
             cmd_info();
             break;
         case CMD_LIST_CREDS:
+            if (!interlock::ready()) { send_status(cmd, ST_LOCKED); break; }
             cmd_list_creds();
             break;
         case CMD_LOG: {
@@ -398,6 +407,7 @@ static void dispatch(uint8_t cmd, const uint8_t* p, size_t len) {
             break;
         }
         case CMD_DELETE_CRED: {
+            if (!interlock::ready()) { send_status(cmd, ST_LOCKED); break; }
             size_t off = 0;
             if (!auth_payload(p, len, off)) { send_status(cmd, ST_AUTH); break; }
             const uint8_t* id = p + off;
@@ -408,6 +418,7 @@ static void dispatch(uint8_t cmd, const uint8_t* p, size_t len) {
             break;
         }
         case CMD_DELETE_ALL: {
+            if (!interlock::ready()) { send_status(cmd, ST_LOCKED); break; }
             size_t off = 0;
             if (!auth_payload(p, len, off)) { send_status(cmd, ST_AUTH); break; }
             store::delete_all_credentials();

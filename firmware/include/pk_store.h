@@ -60,6 +60,15 @@ namespace store {
 
 bool begin();
 
+// The credential store is encrypted with a random DEK.  unlock_credentials()
+// is called after the second board proves presence and supplies the KEK; the
+// DEK is unwrapped from NVS and the store is decrypted into RAM.
+bool unlock_credentials(const uint8_t kek[32]);
+bool rewrap_dek(const uint8_t newKek[32]);
+bool credentials_unlocked();
+bool encrypted_at_rest();
+const char* lastError();
+
 const uint8_t* master_key();
 
 Settings& settings();

@@ -34,5 +34,11 @@ const char* state();
 
 uint32_t lastProofAgeMs();
 
+// Diagnostics for the management INFO frame.
+uint32_t rxBytes();
+uint32_t rxLines();
+const char* lastLine();
+const char* debugText();
+
 }  // namespace interlock
 }  // namespace pk

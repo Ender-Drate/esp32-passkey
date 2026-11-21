@@ -29,6 +29,7 @@
 
 #include "pk_crypto.h"
 #include "pk_led.h"
+#include "pk_store.h"
 
 namespace pk {
 namespace interlock {
@@ -39,12 +40,19 @@ Preferences g_prefs;
 
 uint8_t g_key[32];
 uint8_t g_pendingKey[32];
+uint8_t g_pendingKek[32];
+uint8_t g_kekNonce[12];
 volatile bool g_haveKey = false;
 volatile bool g_ready = false;
 volatile bool g_paired = false;
 volatile bool g_replaceMode = false;
 volatile bool g_replaceRequest = false;
 volatile bool g_hasPending = false;
+volatile bool g_awaitingKek = false;
+volatile bool g_pendingVerified = false;
+volatile bool g_proofValid = false;
+uint8_t g_kekTarget = 0;  // 1 = active key, 2 = pending key
+uint32_t g_lastKek = 0;
 uint32_t g_replaceDeadline = 0;
 uint32_t g_lastPendingPair = 0;
 bool g_pairedLoaded = false;
@@ -61,6 +69,15 @@ uint32_t g_lastSwap = 0;
 
 char g_line[160];
 size_t g_lineLen = 0;
+volatile uint32_t g_rxBytes = 0;
+volatile uint32_t g_rxLines = 0;
+char g_lastRx[48] = {0};
+uint32_t g_proofOk = 0;
+uint32_t g_proofBad = 0;
+uint32_t g_kekTries = 0;
+uint32_t g_kekFails = 0;
+uint32_t g_unlockFails = 0;
+char g_dbgText[96] = {0};
 
 TaskHandle_t g_task = nullptr;
 
@@ -147,6 +164,18 @@ void sendPending() {
     g_lastPendingPair = millis();
 }
 
+void sendKekRequest(const uint8_t key[32], uint8_t target) {
+    (void)key;
+    if (!random_bytes(g_kekNonce, sizeof(g_kekNonce))) return;
+    char hex[25];
+    toHex(g_kekNonce, sizeof(g_kekNonce), hex);
+    g_serial.printf("E %s\n", hex);
+    g_kekTarget = target;
+    g_awaitingKek = true;
+    g_lastKek = millis();
+    g_kekTries++;
+}
+
 void sendChallenge() {
     if (!random_bytes(g_nonce, sizeof(g_nonce))) return;
     char hex[33];
@@ -161,6 +190,7 @@ void promotePending() {
     saveKey();
     g_hasPending = false;
     g_replaceMode = false;
+    g_pendingVerified = false;
     g_paired = true;
     g_pairedLoaded = true;
     g_prefs.putBool("paired", true);
@@ -181,7 +211,13 @@ void handleLine(char* line) {
             uint8_t pending[32];
             proofWithKey(g_pendingKey, g_nonce, pending);
             if (ct_equal(got, pending, sizeof(pending))) {
-                promotePending();
+                g_proofOk++;
+                g_lastProof = millis();
+                g_awaiting = false;
+                g_pendingVerified = true;
+                if (!g_awaitingKek) {
+                    sendKekRequest(g_pendingKey, 2);
+                }
                 return;
             }
             if (ct_equal(got, active, sizeof(active))) {
@@ -190,8 +226,10 @@ void handleLine(char* line) {
                 return;
             }
         } else if (ct_equal(got, active, sizeof(active))) {
+            g_proofOk++;
             g_lastProof = millis();
             g_awaiting = false;
+            g_proofValid = true;
             if (!g_paired) {
                 // First successful pairing: from now on the key is never
                 // offered again.  A replacement requires the explicit
@@ -201,17 +239,22 @@ void handleLine(char* line) {
                 g_prefs.putBool("paired", true);
                 Serial.println("[interlock] first pairing complete; locked to this board");
             }
-            if (!g_ready) {
-                g_ready = true;
-                g_state = 2;
-                led::locked(false);
-                Serial.println("[interlock] second board OK");
+            if (store::credentials_unlocked()) {
+                if (!g_ready) {
+                    g_ready = true;
+                    g_state = 2;
+                    led::locked(false);
+                    Serial.println("[interlock] second board OK");
+                }
+            } else if (!g_awaitingKek) {
+                sendKekRequest(g_key, 1);
             }
             return;
         }
 
         // Unknown/mismatched key.
         if (!g_replaceMode) {
+            g_proofBad++;
             g_ready = false;
             g_state = 3;
             g_awaiting = false;
@@ -219,6 +262,39 @@ void handleLine(char* line) {
             if (!g_keyAnnounced) {
                 Serial.println("[interlock] proof mismatch (different key?)");
                 g_keyAnnounced = true;
+            }
+        }
+        return;
+    }
+    if (strncmp(line, "E ", 2) == 0) {
+        uint8_t blob[48];
+        uint8_t kek[32];
+        if (!parseHex(line + 2, blob, sizeof(blob))) return;
+        const uint8_t* key = (g_kekTarget == 2) ? g_pendingKey : g_key;
+        if (!aes256_gcm_decrypt(key, g_kekNonce, sizeof(g_kekNonce),
+                                blob, sizeof(blob), kek)) {
+            g_kekFails++;
+            Serial.println("[interlock] KEK decrypt failed");
+            g_awaitingKek = false;
+            return;
+        }
+        g_awaitingKek = false;
+        if (g_kekTarget == 2) {
+            memcpy(g_pendingKek, kek, sizeof(g_pendingKek));
+            if (store::rewrap_dek(kek)) {
+                promotePending();
+            } else {
+                Serial.println("[interlock] DEK rewrap failed; replacement aborted");
+            }
+        } else {
+            if (store::unlock_credentials(kek)) {
+                g_ready = true;
+                g_state = 2;
+                led::locked(false);
+                Serial.println("[interlock] store unlocked with second-board KEK");
+            } else {
+                g_unlockFails++;
+                Serial.println("[interlock] credential store unlock failed");
             }
         }
         return;
@@ -244,9 +320,13 @@ void handleLine(char* line) {
 void readLines() {
     while (g_serial.available() > 0) {
         char c = (char)g_serial.read();
+        g_rxBytes++;
         if (c == '\n' || c == '\r') {
             if (g_lineLen > 0) {
                 g_line[g_lineLen] = 0;
+                g_rxLines++;
+                strncpy(g_lastRx, g_line, sizeof(g_lastRx) - 1);
+                g_lastRx[sizeof(g_lastRx) - 1] = 0;
                 handleLine(g_line);
                 g_lineLen = 0;
             }
@@ -318,9 +398,21 @@ void task(void*) {
             sendPair();
         }
 
+        // A valid proof is not enough: the store stays ciphertext until the
+        // second board releases the KEK.  Retry the KEK request until it works.
+        if (g_proofValid && !store::credentials_unlocked() && !g_awaitingKek &&
+            (uint32_t)(now - g_lastKek) > 1500) {
+            sendKekRequest(g_key, 1);
+        }
+        if (g_pendingVerified && g_replaceMode && !g_awaitingKek &&
+            (uint32_t)(now - g_lastKek) > 1500) {
+            sendKekRequest(g_pendingKey, 2);
+        }
+
         if (g_replaceMode && (int32_t)(now - g_replaceDeadline) >= 0) {
             g_replaceMode = false;
             g_hasPending = false;
+            g_pendingVerified = false;
             g_ready = false;
             g_lastProof = 0;
             Serial.println("[interlock] replace timeout; old key kept");
@@ -332,9 +424,13 @@ void task(void*) {
 
         if (g_ready && (uint32_t)(now - g_lastProof) > PK_IL_PROOF_TIMEOUT_MS) {
             g_ready = false;
+            g_proofValid = false;
             g_state = 1;
             led::locked(true);
             Serial.println("[interlock] proof timeout, locked");
+        }
+        if (g_proofValid && (uint32_t)(now - g_lastProof) > PK_IL_PROOF_TIMEOUT_MS) {
+            g_proofValid = false;
         }
 
         delay(10);
@@ -364,7 +460,7 @@ bool ready() { return g_ready; }
 
 bool beginReplace() {
     if (g_replaceMode || g_replaceRequest) return false;
-    if (!g_ready) return false;
+    if (!g_ready || !store::credentials_unlocked()) return false;
     g_replaceRequest = true;
     return true;
 }
@@ -374,6 +470,8 @@ void cancelReplace() {
     g_replaceRequest = false;
     g_replaceMode = false;
     g_hasPending = false;
+    g_pendingVerified = false;
+    g_awaitingKek = false;
     g_ready = false;
     g_lastProof = 0;
     Serial.println("[interlock] replace cancelled");
@@ -388,6 +486,9 @@ void forget() {
     g_replaceMode = false;
     g_replaceRequest = false;
     g_hasPending = false;
+    g_pendingVerified = false;
+    g_awaitingKek = false;
+    g_proofValid = false;
     g_pairedLoaded = true;
     g_state = 0;
     g_keyAnnounced = false;
@@ -414,6 +515,17 @@ uint32_t lastProofAgeMs() {
     return millis() - g_lastProof;
 }
 
+uint32_t rxBytes() { return g_rxBytes; }
+uint32_t rxLines() { return g_rxLines; }
+const char* lastLine() { return g_lastRx; }
+
+const char* debugText() {
+    snprintf(g_dbgText, sizeof(g_dbgText), "ok%u bad%u e%u/%u uf%u",
+             (unsigned)g_proofOk, (unsigned)g_proofBad, (unsigned)g_kekTries,
+             (unsigned)g_kekFails, (unsigned)g_unlockFails);
+    return g_dbgText;
+}
+
 }  // namespace interlock
 }  // namespace pk
 
@@ -431,6 +543,10 @@ bool replaceMode() { return false; }
 void forget() {}
 const char* state() { return "disabled"; }
 uint32_t lastProofAgeMs() { return 0; }
+uint32_t rxBytes() { return 0; }
+uint32_t rxLines() { return 0; }
+const char* lastLine() { return ""; }
+const char* debugText() { return ""; }
 }  // namespace interlock
 }  // namespace pk
 

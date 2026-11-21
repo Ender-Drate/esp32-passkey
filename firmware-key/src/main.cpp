@@ -12,6 +12,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <mbedtls/md.h>
+#include <mbedtls/gcm.h>
 #include <string.h>
 
 #ifndef KEY_RX_PIN
@@ -32,6 +33,7 @@ namespace {
 HardwareSerial g_link(1);
 Preferences prefs;
 uint8_t g_key[32];
+uint8_t g_kek[32];
 bool g_haveKey = false;
 
 char g_line[160];
@@ -130,6 +132,35 @@ void handleLine(char* line) {
         g_link.printf("P %s\n", hex);
         return;
     }
+    if (strncmp(line, "E ", 2) == 0) {
+        uint8_t nonce[12];
+        uint8_t out[48];
+        char hex[97];
+        if (!parseHex(line + 2, nonce, sizeof(nonce))) {
+            g_link.println("ERR BADHEX");
+            return;
+        }
+        if (!g_haveKey) {
+            g_link.println("ERR NOKEY");
+            return;
+        }
+        mbedtls_gcm_context ctx;
+        mbedtls_gcm_init(&ctx);
+        int rc = mbedtls_gcm_setkey(&ctx, MBEDTLS_CIPHER_ID_AES, g_key, 256);
+        if (rc == 0) {
+            rc = mbedtls_gcm_crypt_and_tag(&ctx, MBEDTLS_GCM_ENCRYPT, sizeof(g_kek),
+                                           nonce, sizeof(nonce), nullptr, 0,
+                                           g_kek, out, 16, out + sizeof(g_kek));
+        }
+        mbedtls_gcm_free(&ctx);
+        if (rc != 0) {
+            g_link.println("ERR CRYPTO");
+            return;
+        }
+        toHex(out, sizeof(out), hex);
+        g_link.printf("E %s\n", hex);
+        return;
+    }
     g_link.println("ERR CMD");
 }
 
@@ -166,6 +197,7 @@ void setup() {
         }
         if (millis() - start >= 3000) {
             prefs.remove("key");
+            prefs.remove("kek");
             Serial.println("[key] erased by BOOT hold");
         }
     }
@@ -173,6 +205,14 @@ void setup() {
     if (prefs.getBytesLength("key") == sizeof(g_key) &&
         prefs.getBytes("key", g_key, sizeof(g_key)) == sizeof(g_key)) {
         g_haveKey = true;
+    }
+    if (prefs.getBytesLength("kek") == sizeof(g_kek) &&
+        prefs.getBytes("kek", g_kek, sizeof(g_kek)) == sizeof(g_kek)) {
+        Serial.println("[key] KEK loaded");
+    } else {
+        for (int i = 0; i < (int)sizeof(g_kek); i++) g_kek[i] = (uint8_t)esp_random();
+        prefs.putBytes("kek", g_kek, sizeof(g_kek));
+        Serial.println("[key] new KEK generated");
     }
 
     g_link.begin(115200, SERIAL_8N1, KEY_RX_PIN, KEY_TX_PIN);

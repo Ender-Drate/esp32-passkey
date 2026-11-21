@@ -42,8 +42,13 @@ HID（CTAPHID）+ CDC（管理协议 / OTA）。
 
 ## 存储
 
-- `nvs`：主密钥、PIN 哈希（AES-GCM 加密）、设置、启动计数。
-- LittleFS `spiffs` 分区：`/creds.bin` 常驻凭据、`/blob.bin` largeBlob。
+- `nvs`：主密钥、PIN 哈希（AES-GCM 加密）、设置、启动计数，以及**被 KEK 包裹的
+  DEK**（`dek`）。主板不保存 KEK。
+- LittleFS `spiffs` 分区：`/creds.bin` 是 **PKC2 密文**（AES-256-GCM，密钥为 DEK），
+  不是明文私钥；`/blob.bin` largeBlob。
+- 开机流程：副板证明 link key → 副板用 link key 加密把 **KEK** 发给主板 → 主板用
+  KEK 解开 NVS 里的 DEK → 用 DEK 把 `/creds.bin` 解密到 RAM。没有副板时主板上只有
+  密文和被包裹的 DEK，无法得到私钥。
 - 分区表：两个 3 MB OTA 槽 + ~9.9 MB 数据分区（`partitions.csv`）。
 
 ## 调试
@@ -91,8 +96,10 @@ GND ─────────────── GND
 - 上电自动配对：主板生成 key，发给空副板；副板回 `OK K` 后开始应答 nonce。
 - **配对是一次性的**：第一次成功证明后，主板把 `paired` 写入 NVS，之后**不再
   静默分发 `K`**。换副板必须走「更换副板」流程：旧副板先证明在场 → 主板生成
-  pending key → 新副板保存并证明 → 原子切换。**不删除 Passkey**；超时/取消则
-  保留旧 key，旧副板继续可用。
+  pending key → 新副板保存并证明 → **把 DEK 重新用新 KEK 包裹** → 原子切换。
+  **不删除 Passkey**；超时/取消则保留旧 key 和旧包裹，旧副板继续可用。
+- **KEK 只在副板**：主板 NVS 只有 `AES-GCM(KEK, DEK)`；更换副板只重新包裹 DEK，
+  不重新加密整个凭据库。
 - 运行时每 700 ms 一次 challenge；2.5 s 没有有效应答 → 红灯 + 拒绝
   `makeCredential` / `getAssertion` / U2F（`0x27 OPERATION_DENIED`）。
 - **PIN 仍然存在主板**，由电脑端输入；副板只是额外的物理因子，不保存 PIN。

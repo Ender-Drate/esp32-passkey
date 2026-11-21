@@ -86,11 +86,20 @@ python tests/ble_ctap_test.py    # BLE（需 -DPK_BLE_ALIAS=1 构建）
 
 ## 安全模型
 
-- 设备端：主密钥在 NVS；PIN 只存 `AES-GCM(masterKey, SHA256(pin)[:16])`；
-  凭据私钥只在 flash / RAM 中出现；non-resident 凭据用 AES-GCM 包裹。
+- 设备端 PIN 只存 `AES-GCM(masterKey, SHA256(pin)[:16])`，masterKey 在 NVS；
+  它只保护 PIN 校验，不直接保护凭据私钥。
+- 凭据库 `/creds.bin` 是 **PKC2 密文**：随机 DEK 做 AES-256-GCM；DEK 又被副板的
+  **KEK** 包裹后存 NVS。KEK 只在副板，主板不保存。开机时副板证明 link key 后，
+  用 link key 加密把 KEK 发给主板，主板解出 DEK 才能把凭据解密到 RAM。
+  只拿主板 + flash dump 得到的是密文和 `AES-GCM(KEK, DEK)`，没有副板解不开。
+- non-resident 凭据（U2F/rk=false）的 key handle 也用 DEK 包裹；升级前的旧
+  handle 仍可用 masterKey 解开（兼容路径）。
 - 管理器：密码库 `scrypt(N=2^15) + AES-256-GCM`，主密码不落盘；只监听
   `127.0.0.1`；导出为明文，需自行保管。
 - 触摸确认：BOOT 键；管理器可切「自动确认」但仅建议测试时使用。
+- **仍未启用 ESP32-S3 Flash Encryption / Secure Boot**。因此拿到主板的人虽然
+  解不开凭据，仍可刷入自己的固件（然后必须再拿到副板才能取 KEK）；要防刷机/
+  防 flash 读取，需要另开 eFuse 安全启动与加密。
 
 ## 第二块板（物理钥匙）
 

@@ -874,6 +874,13 @@ static bool same_rp_exists(int idx) {
 }
 
 static uint8_t do_cred_mgmt(const Value& req, cbor::Writer& w) {
+    // Credential management exposes the complete passkey inventory (and can
+    // delete it).  It must be behind the same physical interlock as signing,
+    // otherwise the main board alone leaks every RP/user/credential ID.
+    if (!interlock::ready()) {
+        led::locked(true);
+        return CTAP2_ERR_OPERATION_DENIED;
+    }
     const Value* subV = req.get(1);
     if (!subV || !subV->is_int()) return CTAP1_ERR_INVALID_PARAMETER;
     uint8_t sub = (uint8_t)subV->i;
@@ -1031,6 +1038,10 @@ static bool blob_read_at(uint8_t* out, size_t offset, size_t len, size_t& got) {
 }
 
 static uint8_t do_large_blobs(const Value& req, cbor::Writer& w) {
+    if (!interlock::ready()) {
+        led::locked(true);
+        return CTAP2_ERR_OPERATION_DENIED;
+    }
     const Value* offsetV = req.get(3);
     if (!offsetV || !offsetV->is_int() || offsetV->i < 0) return CTAP1_ERR_INVALID_PARAMETER;
     size_t offset = (size_t)offsetV->i;
@@ -1125,6 +1136,10 @@ static bool config_auth(const Value& req, uint8_t sub) {
 }
 
 static uint8_t do_config(const Value& req, cbor::Writer& w) {
+    if (!interlock::ready()) {
+        led::locked(true);
+        return CTAP2_ERR_OPERATION_DENIED;
+    }
     const Value* subV = req.get(1);
     if (!subV || !subV->is_int()) return CTAP1_ERR_INVALID_PARAMETER;
     uint8_t sub = (uint8_t)subV->i;

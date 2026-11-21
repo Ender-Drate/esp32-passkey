@@ -24,6 +24,18 @@ pio run -d firmware-key -t upload --upload-port COM11
 ```
 
 副板的 CH343 是 UART0，烧录和日志都走它；不需要原生 USB。
+## KEK（解锁主板的密钥）
+
+副板除了 link key，还保存一把 32 字节 **KEK**（NVS `kek`）。主板不保存 KEK：
+它只保存 `AES-GCM(KEK, DEK)` 和用 DEK 加密的凭据库。
+
+开机流程：
+
+1. 主板发 `C <nonce>`，副板用 link key 回 HMAC 证明。
+2. 证明通过后主板发 `E <nonce>`，副板用 link key 把 **KEK** 做 AES-256-GCM 加密，
+   回 `E <iv||ct||tag>`。
+3. 主板解出 KEK，解开 NVS 里的 DEK，再用 DEK 解密 `/creds.bin` 到 RAM。
+4. 没有副板时，主板上只有密文和被包裹的 DEK，无法得到 Passkey 私钥。
 
 ## 配对
 
@@ -50,9 +62,9 @@ pio run -d firmware-key -t upload --upload-port COM11
 
 ## 清除 key（换主板 / 重新配对）
 
-上电时按住副板 **BOOT** 3 秒以上，红灯亮起后松开，key 被清除。
-清除后如果主板仍然配对正常，它不会自动重新配对——请用管理器的「更换副板」
-流程（旧副板验证 → 新板配对），这样不会丢失 Passkey。
+上电时按住副板 **BOOT** 3 秒以上，红灯亮起后松开，link key **和 KEK** 一起被清除。
+清除 KEK 后，主板 NVS 里用旧 KEK 包裹的 DEK 就解不开了；如果还要保留 Passkey，
+必须用管理器的「更换副板」流程（旧副板还活着、能完成验证）来转移 DEK，不能先清副板。
 
 ## 协议
 
@@ -62,6 +74,7 @@ pio run -d firmware-key -t upload --upload-port COM11
 |---|---|---|
 | `K <64 hex>` | 空板保存 key | `OK K` / `ERR HASKEY` |
 | `C <32 hex>` | 16 字节 nonce | `P <64 hex>` HMAC / `ERR NOKEY` |
+| `E <24 hex>` | 12 字节 nonce | `E <96 hex>`：用 link key 加密的 KEK |
 | `S` | 状态 | `S 1` / `S 0` |
 | `PING` | 存活 | `PONG` |
 

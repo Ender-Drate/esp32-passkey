@@ -20,6 +20,24 @@ static int g_credCount = 0;
 static bool g_dirty = false;
 static uint32_t g_dirtyAt = 0;
 
+// Credentials are encrypted with a random DEK.  The DEK is wrapped by the
+// second board's KEK and stored in NVS; the KEK itself never touches main
+// flash.  At boot the interlock task obtains the KEK, unwraps the DEK and
+// decrypts /creds.bin into PSRAM.
+static uint8_t g_dek[32];
+static uint8_t g_kek[32];
+static bool g_unlocked = false;
+static bool g_legacyPlain = false;
+static uint8_t* g_plain = nullptr;
+static uint8_t* g_cipher = nullptr;
+static const size_t SCRATCH_CAP = 32768;
+static char g_err[48] = {0};
+
+static void set_err(const char* e) {
+    strncpy(g_err, e, sizeof(g_err) - 1);
+    g_err[sizeof(g_err) - 1] = 0;
+}
+
 static const char* CRED_FILE = "/creds.bin";
 static const char* CRED_TMP = "/creds.tmp";
 static const char* BLOB_FILE = "/blob.bin";
@@ -108,6 +126,135 @@ static bool deserialize_cred(Reader& r, Credential& c) {
     return r.ok;
 }
 
+// --- encrypted store helpers -------------------------------------------------
+static bool build_plain(size_t& outLen) {
+    Writer w{g_plain, SCRATCH_CAP};
+    w.raw("PKC1", 4);
+    w.u8(1);
+    w.u8(0);
+    w.u16((uint16_t)g_credCount);
+    for (int i = 0; i < g_credCount; i++) {
+        uint8_t rec[1024];
+        Writer rw{rec, sizeof(rec)};
+        serialize_cred(rw, g_creds[i]);
+        if (!rw.ok || rw.n > 0xFFFF) return false;
+        w.u16((uint16_t)rw.n);
+        w.raw(rec, rw.n);
+        if (!w.ok) return false;
+    }
+    outLen = w.n;
+    return w.ok;
+}
+
+static bool parse_plain(const uint8_t* buf, size_t len) {
+    if (len < 8 || memcmp(buf, "PKC1", 4) != 0) return false;
+    uint16_t count = (uint16_t)(buf[6] | (buf[7] << 8));
+    Reader r{buf + 8, len - 8};
+    g_credCount = 0;
+    for (uint16_t i = 0; i < count && g_credCount < PK_MAX_CREDENTIALS; i++) {
+        uint16_t n = r.u16();
+        if (!r.ok || n == 0 || r.n + n > r.cap) return false;
+        Reader cr{r.p + r.n, n};
+        if (!deserialize_cred(cr, g_creds[g_credCount])) return false;
+        r.n += n;
+        g_credCount++;
+    }
+    return true;
+}
+
+static bool load_legacy_file() {
+    File f = LittleFS.open(CRED_FILE, "r");
+    if (!f) return false;
+    size_t n = f.size();
+    if (n < 8 || n > SCRATCH_CAP) {
+        f.close();
+        return false;
+    }
+    size_t got = 0;
+    while (got < n) {
+        size_t r = f.read(g_plain + got, n - got);
+        if (r == 0) break;
+        got += r;
+    }
+    f.close();
+    if (got != n) return false;
+    return parse_plain(g_plain, n);
+}
+
+static bool save_wrap() {
+    uint8_t iv[12];
+    if (!random_bytes(iv, sizeof(iv))) return false;
+    uint8_t wrap[12 + 32 + 16];
+    memcpy(wrap, iv, 12);
+    if (!aes256_gcm_encrypt(g_kek, iv, 12, g_dek, 32, wrap + 12)) return false;
+    return g_prefs.putBytes("dek", wrap, sizeof(wrap)) == sizeof(wrap);
+}
+
+static bool load_wrap(const uint8_t kek[32]) {
+    size_t len = g_prefs.getBytesLength("dek");
+    if (len != 12 + 32 + 16) return false;
+    uint8_t wrap[12 + 32 + 16];
+    if (g_prefs.getBytes("dek", wrap, sizeof(wrap)) != sizeof(wrap)) return false;
+    return aes256_gcm_decrypt(kek, wrap, 12, wrap + 12, 32 + 16, g_dek);
+}
+
+static bool load_encrypted() {
+    File f = LittleFS.open(CRED_FILE, "r");
+    if (!f) {
+        g_credCount = 0;
+        return true;
+    }
+    uint8_t hdr[8];
+    if (f.read(hdr, 8) != 8 || memcmp(hdr, "PKC2", 4) != 0) {
+        f.close();
+        return false;
+    }
+    size_t total = f.size() - 8;
+    if (total < 12 + 16 || total > SCRATCH_CAP) {
+        f.close();
+        return false;
+    }
+    if (f.read(g_cipher, total) != total) {
+        f.close();
+        return false;
+    }
+    f.close();
+    size_t ctLen = total - 12;
+    if (!aes256_gcm_decrypt(g_dek, g_cipher, 12, g_cipher + 12, ctLen, g_plain)) return false;
+    return parse_plain(g_plain, ctLen - 16);
+}
+
+static bool save_encrypted() {
+    size_t n = 0;
+    if (!build_plain(n)) { set_err("build"); return false; }
+    uint8_t iv[12];
+    if (!random_bytes(iv, sizeof(iv))) { set_err("rng"); return false; }
+    memcpy(g_cipher, iv, 12);
+    if (!aes256_gcm_encrypt(g_dek, iv, 12, g_plain, n, g_cipher + 12)) {
+        set_err("gcm");
+        return false;
+    }
+
+    File f = LittleFS.open(CRED_TMP, "w");
+    if (!f) { set_err("open"); return false; }
+    uint8_t hdr[8] = {'P', 'K', 'C', '2', 1, 0, (uint8_t)(g_credCount & 0xFF),
+                      (uint8_t)(g_credCount >> 8)};
+    bool ok = f.write(hdr, 8) == 8;
+    if (ok) ok = f.write(g_cipher, 12 + n + 16) == (12 + n + 16);
+    f.close();
+    if (!ok) {
+        set_err("write");
+        LittleFS.remove(CRED_TMP);
+        return false;
+    }
+    LittleFS.remove(CRED_FILE);
+    ok = LittleFS.rename(CRED_TMP, CRED_FILE);
+    if (!ok) { set_err("rename"); return false; }
+    g_dirty = false;
+    g_dirtyAt = 0;
+    return true;
+}
+
 // --- init --------------------------------------------------------------------
 bool begin() {
     if (!LittleFS.begin(true)) {
@@ -141,23 +288,21 @@ bool begin() {
     g_creds = (Credential*)heap_caps_malloc(sizeof(Credential) * PK_MAX_CREDENTIALS,
                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!g_creds) g_creds = (Credential*)malloc(sizeof(Credential) * PK_MAX_CREDENTIALS);
-    if (!g_creds) return false;
+    g_plain = (uint8_t*)heap_caps_malloc(SCRATCH_CAP, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!g_plain) g_plain = (uint8_t*)malloc(SCRATCH_CAP);
+    g_cipher = (uint8_t*)heap_caps_malloc(SCRATCH_CAP + 64, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!g_cipher) g_cipher = (uint8_t*)malloc(SCRATCH_CAP + 64);
+    if (!g_creds || !g_plain || !g_cipher) return false;
 
     g_credCount = 0;
+    g_unlocked = false;
+    g_legacyPlain = false;
+
     File f = LittleFS.open(CRED_FILE, "r");
     if (f) {
         uint8_t hdr[8];
         if (f.read(hdr, 8) == 8 && memcmp(hdr, "PKC1", 4) == 0) {
-            uint16_t count = (uint16_t)(hdr[6] | (hdr[7] << 8));
-            for (uint16_t i = 0; i < count && g_credCount < PK_MAX_CREDENTIALS; i++) {
-                uint8_t buf[1024];
-                uint16_t len = 0;
-                if (f.read((uint8_t*)&len, 2) != 2) break;
-                if (len > sizeof(buf) || f.read(buf, len) != len) break;
-                Reader r{buf, len};
-                if (!deserialize_cred(r, g_creds[g_credCount])) break;
-                g_credCount++;
-            }
+            g_legacyPlain = load_legacy_file();
         }
         f.close();
     }
@@ -166,11 +311,89 @@ bool begin() {
     return true;
 }
 
+bool unlock_credentials(const uint8_t kek[32]) {
+    if (g_unlocked) return true;
+    memcpy(g_kek, kek, 32);
+
+    bool haveWrap = load_wrap(kek);
+    if (haveWrap) {
+        if (!load_encrypted()) {
+            // A wrapped DEK exists but the file is still the legacy plaintext
+            // (e.g. the first migration was interrupted).  Recover it with the
+            // existing DEK instead of generating a new one.
+            if (LittleFS.exists(CRED_FILE) && load_legacy_file()) {
+                g_legacyPlain = true;
+                g_unlocked = true;
+                if (!save_encrypted()) {
+                    g_unlocked = false;
+                    set_err("recover-enc");
+                    return false;
+                }
+                g_legacyPlain = false;
+            } else {
+                set_err("load-enc");
+                memset(g_dek, 0, sizeof(g_dek));
+                return false;
+            }
+        }
+    } else {
+        // No wrapped DEK yet.  If a file exists it must be the legacy plaintext
+        // store; parse it before generating a new DEK, otherwise a parse error
+        // would silently replace real credentials with an empty store.
+        if (LittleFS.exists(CRED_FILE)) {
+            if (!g_legacyPlain) g_legacyPlain = load_legacy_file();
+            if (!g_legacyPlain) {
+                set_err("legacy-parse");
+                Serial.println("[store] legacy store parse failed; refusing to overwrite");
+                return false;
+            }
+        }
+        if (!random_bytes(g_dek, sizeof(g_dek))) { set_err("rng"); return false; }
+        g_unlocked = true;
+        if (g_legacyPlain) {
+            if (!save_encrypted()) {
+                g_unlocked = false;
+                return false;
+            }
+            g_legacyPlain = false;
+        } else {
+            g_credCount = 0;
+        }
+        if (!save_wrap()) {
+            set_err("save-wrap");
+            g_unlocked = false;
+            return false;
+        }
+    }
+    g_unlocked = true;
+    set_err("ok");
+    return true;
+}
+
+bool rewrap_dek(const uint8_t newKek[32]) {
+    if (!g_unlocked) return false;
+    memcpy(g_kek, newKek, 32);
+    return save_wrap();
+}
+
+bool credentials_unlocked() { return g_unlocked; }
+
+const char* lastError() { return g_err; }
+
+bool encrypted_at_rest() {
+    File f = LittleFS.open(CRED_FILE, "r");
+    if (!f) return true;
+    uint8_t hdr[4];
+    bool enc = f.read(hdr, 4) == 4 && memcmp(hdr, "PKC2", 4) == 0;
+    f.close();
+    return enc;
+}
+
 const uint8_t* master_key() { return g_master; }
 Settings& settings() { return g_settings; }
 
 void save_settings() {
-    g_prefs.putBytes("cfg", &g_settings, sizeof(Settings));
+    g_prefs.putBytes("cfg", &g_settings, sizeof(g_settings));
 }
 
 int credential_count() { return g_credCount; }
@@ -195,12 +418,13 @@ Credential* find_by_rp(const uint8_t rpIdHash[32], const uint8_t* credId, size_t
 }
 
 bool add_credential(const Credential& c) {
-    if (g_credCount >= PK_MAX_CREDENTIALS) return false;
+    if (!g_unlocked || g_credCount >= PK_MAX_CREDENTIALS) return false;
     g_creds[g_credCount++] = c;
     return save_credentials();
 }
 
 bool update_credential(const Credential& c) {
+    if (!g_unlocked) return false;
     for (int i = 0; i < g_credCount; i++) {
         if (g_creds[i].credIdLen == c.credIdLen &&
             ct_equal(g_creds[i].credId, c.credId, c.credIdLen)) {
@@ -212,6 +436,7 @@ bool update_credential(const Credential& c) {
 }
 
 bool delete_credential(const uint8_t* credId, size_t len) {
+    if (!g_unlocked) return false;
     for (int i = 0; i < g_credCount; i++) {
         if (g_creds[i].credIdLen == len && ct_equal(g_creds[i].credId, credId, len)) {
             for (int j = i; j < g_credCount - 1; j++) g_creds[j] = g_creds[j + 1];
@@ -224,7 +449,11 @@ bool delete_credential(const uint8_t* credId, size_t len) {
 
 void delete_all_credentials() {
     g_credCount = 0;
-    save_credentials();
+    if (g_unlocked) {
+        save_credentials();
+    } else {
+        LittleFS.remove(CRED_FILE);
+    }
 }
 
 void mark_dirty() {
@@ -233,7 +462,7 @@ void mark_dirty() {
 }
 
 void flush_if_dirty() {
-    if (g_dirty && millis() - g_dirtyAt > 2000) {
+    if (g_dirty && g_unlocked && millis() - g_dirtyAt > 2000) {
         save_credentials();
         g_dirty = false;
         g_dirtyAt = 0;
@@ -241,7 +470,8 @@ void flush_if_dirty() {
 }
 
 void factory_reset() {
-    delete_all_credentials();
+    LittleFS.remove(CRED_FILE);
+    LittleFS.remove(CRED_TMP);
     large_blob_reset();
     memset(&g_settings, 0, sizeof(g_settings));
     g_settings.version = 1;
@@ -253,32 +483,22 @@ void factory_reset() {
         for (int i = 0; i < 32; i++) g_master[i] = (uint8_t)esp_random();
     }
     g_prefs.putBytes("mk", g_master, 32);
+    g_prefs.remove("dek");
+    memset(g_dek, 0, sizeof(g_dek));
+    memset(g_kek, 0, sizeof(g_kek));
+    g_unlocked = false;
+    g_legacyPlain = false;
+    g_credCount = 0;
     save_settings();
 }
 
 bool save_credentials() {
-    File f = LittleFS.open(CRED_TMP, "w");
-    if (!f) return false;
-    uint8_t hdr[8] = {'P', 'K', 'C', '1', 1, 0, (uint8_t)(g_credCount & 0xFF),
-                      (uint8_t)(g_credCount >> 8)};
-    f.write(hdr, 8);
-    for (int i = 0; i < g_credCount; i++) {
-        uint8_t buf[1024];
-        Writer w{buf, sizeof(buf)};
-        serialize_cred(w, g_creds[i]);
-        if (!w.ok) { f.close(); LittleFS.remove(CRED_TMP); return false; }
-        uint16_t len = (uint16_t)w.n;
-        f.write((const uint8_t*)&len, 2);
-        f.write(buf, len);
-    }
-    f.close();
-    LittleFS.remove(CRED_FILE);
-    bool ok = LittleFS.rename(CRED_TMP, CRED_FILE);
-    g_dirty = false;
-    return ok;
+    if (!g_unlocked) return false;
+    return save_encrypted();
 }
 
 bool wrap_key_handle(const KeyHandle& kh, uint8_t* out, size_t& outLen) {
+    if (!g_unlocked) return false;
     uint8_t plain[128];
     Writer w{plain, sizeof(plain)};
     w.u8(1);
@@ -292,17 +512,21 @@ bool wrap_key_handle(const KeyHandle& kh, uint8_t* out, size_t& outLen) {
     random_bytes(iv, sizeof(iv));
     out[0] = 1;
     memcpy(out + 1, iv, 12);
-    if (!aes256_gcm_encrypt(g_master, iv, 12, plain, w.n, out + 13)) return false;
+    if (!aes256_gcm_encrypt(g_dek, iv, 12, plain, w.n, out + 13)) return false;
     outLen = 13 + w.n + 16;
     return true;
 }
 
 bool unwrap_key_handle(const uint8_t* in, size_t inLen, KeyHandle& kh) {
-    if (inLen < 13 + 1 + 16 || in[0] != 1) return false;
+    if (!g_unlocked || inLen < 13 + 1 + 16 || in[0] != 1) return false;
     uint8_t plain[128];
     size_t ctLen = inLen - 13;
     if (ctLen > sizeof(plain)) return false;
-    if (!aes256_gcm_decrypt(g_master, in + 1, 12, in + 13, ctLen, plain)) return false;
+    if (!aes256_gcm_decrypt(g_dek, in + 1, 12, in + 13, ctLen, plain)) {
+        // Key handles created before the DEK migration were wrapped with the
+        // old master key.  Accept those, then re-wrap on the next use.
+        if (!aes256_gcm_decrypt(g_master, in + 1, 12, in + 13, ctLen, plain)) return false;
+    }
     if (plain[0] != 1) return false;
     Reader r{plain + 1, ctLen - 16 - 1};
     r.raw(kh.rpIdHash, 32);
